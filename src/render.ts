@@ -51,7 +51,8 @@ export function renderStatusText(session: SessionRuntime, prefs: ConversationPre
   const statusLabel = resolveStatusLabel(session);
   const statusIcon = resolveStatusIcon(session);
   const taskLabel = session.runNumber > 0 ? `#${session.runNumber}` : "#-";
-  lines.push(`${statusIcon} ${statusLabel} • Task ${taskLabel}`);
+  const pinMarker = prefs.pinMode ? " 📌" : "";
+  lines.push(`${statusIcon} ${statusLabel} • Task ${taskLabel}${pinMarker}`);
 
   if (prefs.mode !== "minimal") {
     lines.push(`⏱️ ${formatElapsed(session)}`);

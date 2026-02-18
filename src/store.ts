@@ -14,6 +14,7 @@ function defaultConversation(enabledByDefault: boolean, mode: StatusMode): Conve
   return {
     enabled: enabledByDefault,
     mode,
+    pinMode: false,
     statusMessagesByThread: {},
     updatedAt: Date.now(),
   };
@@ -81,6 +82,21 @@ export class StatusbarStore {
     const key = resolveConversationKey(target);
     const existing = this.data.conversations[key];
     if (existing) {
+      if (typeof existing.enabled !== "boolean") {
+        existing.enabled = this.enabledByDefault;
+      }
+      if (existing.mode !== "minimal" && existing.mode !== "normal" && existing.mode !== "detailed") {
+        existing.mode = this.defaultMode;
+      }
+      if (typeof existing.pinMode !== "boolean") {
+        existing.pinMode = false;
+      }
+      if (
+        typeof existing.statusMessagesByThread !== "object" ||
+        existing.statusMessagesByThread == null
+      ) {
+        existing.statusMessagesByThread = {};
+      }
       return existing;
     }
     const next = defaultConversation(this.enabledByDefault, this.defaultMode);

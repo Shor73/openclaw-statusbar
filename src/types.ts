@@ -31,6 +31,7 @@ export type StatusMessageRef = {
 export type ConversationPrefs = {
   enabled: boolean;
   mode: StatusMode;
+  pinMode: boolean;
   statusMessagesByThread: Record<string, StatusMessageRef>;
   updatedAt: number;
 };

@@ -8,6 +8,7 @@ import type {
 
 const MESSAGE_NOT_MODIFIED_RE = /message is not modified/i;
 const MESSAGE_TO_EDIT_NOT_FOUND_RE = /message to edit not found/i;
+const MESSAGE_TO_UNPIN_NOT_FOUND_RE = /message to unpin not found|chat not modified/i;
 
 type TelegramApiResponse<T> =
   | { ok: true; result: T }
@@ -318,6 +319,46 @@ export class TelegramTransport {
           ...params.message,
           updatedAt: Date.now(),
         };
+      }
+      throw err;
+    }
+  }
+
+  async pinStatusMessage(params: {
+    target: TelegramTarget;
+    message: StatusMessageRef;
+  }): Promise<void> {
+    const token = this.resolveToken(params.target.accountId);
+    const payload: Record<string, unknown> = {
+      chat_id: params.message.chatId,
+      message_id: params.message.messageId,
+      disable_notification: true,
+    };
+    await this.callTelegram<true>({
+      token,
+      method: "pinChatMessage",
+      payload,
+    });
+  }
+
+  async unpinStatusMessage(params: {
+    target: TelegramTarget;
+    message: StatusMessageRef;
+  }): Promise<void> {
+    const token = this.resolveToken(params.target.accountId);
+    const payload: Record<string, unknown> = {
+      chat_id: params.message.chatId,
+      message_id: params.message.messageId,
+    };
+    try {
+      await this.callTelegram<true>({
+        token,
+        method: "unpinChatMessage",
+        payload,
+      });
+    } catch (err) {
+      if (err instanceof TelegramApiError && err.code === 400 && MESSAGE_TO_UNPIN_NOT_FOUND_RE.test(err.description)) {
+        return;
       }
       throw err;
     }

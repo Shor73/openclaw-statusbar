@@ -91,6 +91,20 @@ class StatusbarRuntime {
     });
 
     this.api.registerCommand({
+      name: "sbpin",
+      description: "Pin statusline and keep updating the same message",
+      acceptsArgs: false,
+      handler: async (ctx) => await this.handlePinCommand(ctx),
+    });
+
+    this.api.registerCommand({
+      name: "sbunpin",
+      description: "Unpin statusline and create a new message per run",
+      acceptsArgs: false,
+      handler: async (ctx) => await this.handleUnpinCommand(ctx),
+    });
+
+    this.api.registerCommand({
       name: "sbsettings",
       description: "Show statusbar settings and useful commands",
       acceptsArgs: false,
@@ -431,6 +445,17 @@ class StatusbarRuntime {
       if (didMessageRefChange) {
         this.store.setStatusMessage(session.target, nextRef);
         await this.store.persist();
+        if (prefs.pinMode) {
+          try {
+            await this.transport.pinStatusMessage({
+              target: session.target,
+              message: nextRef,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.api.logger.warn(`statusbar pin failed: ${message}`);
+          }
+        }
       }
 
       session.lastRenderedText = text;
@@ -484,6 +509,15 @@ class StatusbarRuntime {
       session.phase === "queued" || session.phase === "running" || session.phase === "tool";
 
     if (!hadActiveRun) {
+      const shouldCreateNewMessage = this.config.newMessagePerRun && !prefs.pinMode;
+      if (shouldCreateNewMessage) {
+        this.store.setStatusMessage(target, null);
+        await this.store.persist();
+        session.lastRenderedText = null;
+        session.lastRenderedControlsKey = null;
+        session.renderedRevision = 0;
+      }
+
       session.phase = "queued";
       session.startedAtMs = Date.now();
       session.endedAtMs = null;
@@ -519,14 +553,6 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     session.runNumber += 1;
     session.queuedCount = Math.max(0, session.queuedCount - 1);
-
-    if (this.config.newMessagePerRun) {
-      this.store.setStatusMessage(target, null);
-      await this.store.persist();
-      session.lastRenderedText = null;
-      session.lastRenderedControlsKey = null;
-      session.renderedRevision = 0;
-    }
 
     session.phase = "running";
     session.startedAtMs = Date.now();
@@ -812,11 +838,14 @@ class StatusbarRuntime {
       `thread=${target.threadId ?? "main"}`,
       `enabled=${prefs.enabled}`,
       `mode=${prefs.mode}`,
+      `pinMode=${prefs.pinMode}`,
       `runNumber=${runtime.runNumber}`,
       `queued=${runtime.queuedCount}`,
       `messageId=${ref?.messageId ?? "none"}`,
       `messageChat=${ref?.chatId ?? "none"}`,
-      `note=new status message is created at each run start`,
+      `note=${
+        prefs.pinMode ? "pinned mode: same message updated every run" : "unpinned mode: new message every run"
+      }`,
     ];
     return { text: lines.join("\n") };
   }
@@ -859,6 +888,84 @@ class StatusbarRuntime {
     };
   }
 
+  private async handlePinCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbpin again.",
+      };
+    }
+
+    this.store.updateConversation(target, (current) => ({
+      ...current,
+      enabled: true,
+      pinMode: true,
+    }));
+    await this.store.persist();
+
+    const session = this.getOrCreateSession(target);
+    session.phase = session.phase === "idle" ? "idle" : session.phase;
+    this.markDirty(session);
+    await this.flushSession(session.sessionKey);
+
+    const ref = this.store.getStatusMessage(target);
+    if (ref) {
+      try {
+        await this.transport.pinStatusMessage({ target, message: ref });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.api.logger.warn(`statusbar pin failed: ${message}`);
+      }
+    }
+
+    return {
+      text: `Statusbar pinned.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}\nLive messageId: ${ref?.messageId ?? "pending"}`,
+    };
+  }
+
+  private async handleUnpinCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbunpin again.",
+      };
+    }
+
+    const ref = this.store.getStatusMessage(target);
+    if (ref) {
+      try {
+        await this.transport.unpinStatusMessage({ target, message: ref });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.api.logger.warn(`statusbar unpin failed: ${message}`);
+      }
+    }
+
+    this.store.updateConversation(target, (current) => ({
+      ...current,
+      pinMode: false,
+    }));
+    await this.store.persist();
+
+    return {
+      text: `Statusbar unpinned.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
+    };
+  }
+
   private async handleSettingsCommand(ctx: {
     channel: string;
     senderId?: string;
@@ -879,6 +986,7 @@ class StatusbarRuntime {
       "Statusbar settings",
       `enabled=${prefs.enabled}`,
       `mode=${prefs.mode}`,
+      `pinMode=${prefs.pinMode}`,
       `liveTickMs=${this.config.liveTickMs}`,
       `throttleMs=${this.config.throttleMs}`,
       `newMessagePerRun=${this.config.newMessagePerRun}`,
@@ -887,6 +995,7 @@ class StatusbarRuntime {
       "Commands:",
       "/sbon  /sboff",
       "/sbmode minimal|normal|detailed",
+      "/sbpin  /sbunpin",
       "/sbstatus  /sbreset",
     ];
     return { text: lines.join("\n") };
