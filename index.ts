@@ -142,6 +142,7 @@ class StatusbarRuntime {
       usageOutput: null,
       error: null,
       lastRenderedText: null,
+      lastRenderedControlsKey: null,
       lastRenderedAtMs: 0,
       nextAllowedAtMs: 0,
       desiredRevision: 0,
@@ -224,8 +225,13 @@ class StatusbarRuntime {
     try {
       const text = renderStatusText(session, prefs);
       const controls = this.config.showInlineControls ? buildEnabledControls(prefs) : undefined;
+      const controlsKey = JSON.stringify(controls ?? null);
 
-      if (text === session.lastRenderedText && session.renderedRevision !== 0) {
+      if (
+        text === session.lastRenderedText &&
+        controlsKey === session.lastRenderedControlsKey &&
+        session.renderedRevision !== 0
+      ) {
         session.renderedRevision = session.desiredRevision;
         return;
       }
@@ -270,6 +276,7 @@ class StatusbarRuntime {
       }
 
       session.lastRenderedText = text;
+      session.lastRenderedControlsKey = controlsKey;
       session.lastRenderedAtMs = Date.now();
       session.nextAllowedAtMs =
         session.lastRenderedAtMs + Math.max(this.config.throttleMs, this.config.minThrottleMs);

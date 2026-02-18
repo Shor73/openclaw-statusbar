@@ -51,6 +51,7 @@ export type SessionRuntime = {
   usageOutput: number | null;
   error: string | null;
   lastRenderedText: string | null;
+  lastRenderedControlsKey: string | null;
   lastRenderedAtMs: number;
   nextAllowedAtMs: number;
   desiredRevision: number;
