@@ -37,6 +37,7 @@ class StatusbarRuntime {
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionTargets = new Map<string, SessionTargetRef>();
   private readonly senderTargets = new Map<string, SenderTargetRef>();
+  private liveTicker: ReturnType<typeof setInterval> | null = null;
 
   constructor(api: OpenClawPluginApi) {
     this.api = api;
@@ -52,6 +53,7 @@ class StatusbarRuntime {
 
   async init(): Promise<void> {
     await this.store.load();
+    this.startLiveTicker();
 
     this.api.registerCommand({
       name: "sbon",
@@ -111,6 +113,36 @@ class StatusbarRuntime {
     this.api.on("agent_end", async (event, ctx) => {
       await this.onAgentEnd(event, ctx);
     });
+  }
+
+  private startLiveTicker(): void {
+    if (this.liveTicker) {
+      clearInterval(this.liveTicker);
+      this.liveTicker = null;
+    }
+    const tickMs = Math.max(250, this.config.liveTickMs);
+    this.liveTicker = setInterval(() => {
+      this.onLiveTick();
+    }, tickMs);
+    this.liveTicker.unref?.();
+  }
+
+  private onLiveTick(): void {
+    const nowMs = Date.now();
+    for (const session of this.sessions.values()) {
+      if (session.phase !== "queued" && session.phase !== "running" && session.phase !== "tool") {
+        continue;
+      }
+      const prefs = this.store.getConversation(session.target);
+      if (!prefs.enabled) {
+        continue;
+      }
+      const cadenceMs = Math.max(this.config.liveTickMs, this.config.minThrottleMs);
+      if (nowMs - session.lastRenderedAtMs < cadenceMs) {
+        continue;
+      }
+      this.markDirty(session);
+    }
   }
 
   private pruneSessionTargets(nowMs: number): void {
@@ -549,7 +581,7 @@ class StatusbarRuntime {
       typeof event.usage?.output === "number" ? Math.trunc(event.usage.output) : 0;
     if (prefs.mode === "detailed") {
       const nowMs = Date.now();
-      const usageIntervalMs = Math.max(this.config.minThrottleMs, this.config.throttleMs, 3000);
+      const usageIntervalMs = Math.max(this.config.minThrottleMs, this.config.liveTickMs);
       if (nowMs - session.lastUsageRenderAtMs >= usageIntervalMs) {
         session.lastUsageRenderAtMs = nowMs;
         this.markDirty(session);

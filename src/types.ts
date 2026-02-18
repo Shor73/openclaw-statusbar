@@ -7,6 +7,7 @@ export type StatusbarPluginConfig = {
   defaultMode: StatusMode;
   throttleMs: number;
   minThrottleMs: number;
+  liveTickMs: number;
   maxRetries: number;
   autoHideSeconds: number;
   showInlineControls: boolean;

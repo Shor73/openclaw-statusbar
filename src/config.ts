@@ -30,8 +30,9 @@ export function normalizePluginConfig(raw: unknown): StatusbarPluginConfig {
   return {
     enabledByDefault: asBool(source.enabledByDefault, false),
     defaultMode: asMode(source.defaultMode, "normal"),
-    throttleMs: asInt(source.throttleMs, 3200, 250, 10_000),
-    minThrottleMs: asInt(source.minThrottleMs, 2500, 250, 10_000),
+    throttleMs: asInt(source.throttleMs, 1200, 250, 10_000),
+    minThrottleMs: asInt(source.minThrottleMs, 900, 250, 10_000),
+    liveTickMs: asInt(source.liveTickMs, 1000, 250, 10_000),
     maxRetries: asInt(source.maxRetries, 4, 0, 10),
     autoHideSeconds: asInt(source.autoHideSeconds, 0, 0, 600),
     showInlineControls: asBool(source.showInlineControls, true),
