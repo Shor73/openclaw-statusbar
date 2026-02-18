@@ -12,7 +12,7 @@ type MessageReceivedEvent = {
   metadata?: Record<string, unknown>;
 };
 
-type RoutePeer = { kind: "direct" | "group"; id: string };
+type RoutePeer = { kind: "dm" | "group"; id: string };
 
 const TELEGRAM_PREFIX = "telegram:";
 const TELEGRAM_GROUP_PREFIX = "telegram:group:";
@@ -166,7 +166,7 @@ function resolveRoutePeer(event: MessageReceivedEvent, target: TelegramTarget): 
   const directPeer = parseChatIdFromReference(from) ?? target.chatId;
   return {
     peer: {
-      kind: "direct",
+      kind: "dm",
       id: directPeer,
     },
   };
@@ -273,18 +273,20 @@ export function resolveTelegramTargetFromSessionKey(sessionKey: string): Telegra
   }
 
   // Known forms:
-  // - telegram:<accountId>:direct:<peerId>
-  // - telegram:direct:<peerId>
+  // - telegram:<accountId>:dm:<peerId>
+  // - telegram:<accountId>:direct:<peerId> (legacy)
+  // - telegram:dm:<peerId>
+  // - telegram:direct:<peerId> (legacy)
   // - telegram:group:<peerId>
   let accountId = "default";
   let kind = "";
   let peerId = "";
 
-  if (rest.length >= 4 && rest[2] === "direct") {
+  if (rest.length >= 4 && (rest[2] === "dm" || rest[2] === "direct")) {
     accountId = normalizeAccountId(rest[1]);
-    kind = "direct";
+    kind = rest[2];
     peerId = rest.slice(3).join(":");
-  } else if (rest.length >= 3 && (rest[1] === "direct" || rest[1] === "group")) {
+  } else if (rest.length >= 3 && (rest[1] === "dm" || rest[1] === "direct" || rest[1] === "group")) {
     kind = rest[1];
     peerId = rest.slice(2).join(":");
   } else {
