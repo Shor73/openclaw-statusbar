@@ -22,6 +22,11 @@ type SessionTargetRef = {
   seenAtMs: number;
 };
 
+type SenderTargetRef = {
+  target: TelegramTarget;
+  seenAtMs: number;
+};
+
 const SESSION_TARGET_TTL_MS = 30 * 60 * 1000;
 
 class StatusbarRuntime {
@@ -31,6 +36,7 @@ class StatusbarRuntime {
   private readonly transport: TelegramTransport;
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionTargets = new Map<string, SessionTargetRef>();
+  private readonly senderTargets = new Map<string, SenderTargetRef>();
 
   constructor(api: OpenClawPluginApi) {
     this.api = api;
@@ -99,12 +105,64 @@ class StatusbarRuntime {
         this.sessionTargets.delete(sessionKey);
       }
     }
+    for (const [senderKey, entry] of this.senderTargets.entries()) {
+      if (nowMs - entry.seenAtMs > SESSION_TARGET_TTL_MS) {
+        this.senderTargets.delete(senderKey);
+      }
+    }
   }
 
   private trackSessionTarget(sessionKey: string, target: TelegramTarget): void {
     const nowMs = Date.now();
     this.pruneSessionTargets(nowMs);
     this.sessionTargets.set(sessionKey, { target, seenAtMs: nowMs });
+  }
+
+  private trackSenderTarget(senderId: string | null, target: TelegramTarget): void {
+    const sender = (senderId ?? "").trim();
+    if (!sender) {
+      return;
+    }
+    const nowMs = Date.now();
+    this.pruneSessionTargets(nowMs);
+    const key = `${target.accountId}::${sender}`;
+    this.senderTargets.set(key, { target, seenAtMs: nowMs });
+  }
+
+  private resolveTargetFromSender(params: {
+    senderId?: string;
+    accountId?: string;
+  }): TelegramTarget | null {
+    const sender = (params.senderId ?? "").trim();
+    if (!sender) {
+      return null;
+    }
+
+    const preferredAccountId = (params.accountId ?? "").trim();
+    if (preferredAccountId) {
+      const direct = this.senderTargets.get(`${preferredAccountId}::${sender}`);
+      if (direct) {
+        direct.seenAtMs = Date.now();
+        return direct.target;
+      }
+    }
+
+    let best: SenderTargetRef | null = null;
+    const suffix = `::${sender}`;
+    for (const [key, entry] of this.senderTargets.entries()) {
+      if (!key.endsWith(suffix)) {
+        continue;
+      }
+      if (!best || entry.seenAtMs > best.seenAtMs) {
+        best = entry;
+      }
+    }
+
+    if (!best) {
+      return null;
+    }
+    best.seenAtMs = Date.now();
+    return best.target;
   }
 
   private resolveTargetForSession(sessionKey: string | undefined | null): TelegramTarget | null {
@@ -126,6 +184,27 @@ class StatusbarRuntime {
     }
 
     return null;
+  }
+
+  private resolveTargetForCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): TelegramTarget | null {
+    const direct = resolveTelegramTargetFromCommandContext(ctx);
+    if (direct) {
+      return direct;
+    }
+    if ((ctx.channel ?? "").trim().toLowerCase() !== "telegram") {
+      return null;
+    }
+    return this.resolveTargetFromSender({
+      senderId: ctx.senderId,
+      accountId: ctx.accountId,
+    });
   }
 
   private createSessionState(params: { sessionKey: string; target: TelegramTarget }): SessionRuntime {
@@ -307,6 +386,8 @@ class StatusbarRuntime {
       target,
     });
     this.trackSessionTarget(sessionKey, target);
+    const senderIdRaw = event.metadata?.senderId;
+    this.trackSenderTarget(typeof senderIdRaw === "string" ? senderIdRaw : null, target);
 
     const prefs = this.store.getConversation(target);
     if (!prefs.enabled) {
@@ -461,14 +542,17 @@ class StatusbarRuntime {
 
   private async handleEnableCommand(ctx: {
     channel: string;
+    senderId?: string;
     accountId?: string;
     to?: string;
     from?: string;
     messageThreadId?: number;
   }): Promise<ReplyPayload> {
-    const target = resolveTelegramTargetFromCommandContext(ctx);
+    const target = this.resolveTargetForCommand(ctx);
     if (!target) {
-      return { text: "Statusbar: this command works only on Telegram." };
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbon again.",
+      };
     }
 
     const prefs = this.store.updateConversation(target, (current) => ({
@@ -498,14 +582,17 @@ class StatusbarRuntime {
 
   private async handleDisableCommand(ctx: {
     channel: string;
+    senderId?: string;
     accountId?: string;
     to?: string;
     from?: string;
     messageThreadId?: number;
   }): Promise<ReplyPayload> {
-    const target = resolveTelegramTargetFromCommandContext(ctx);
+    const target = this.resolveTargetForCommand(ctx);
     if (!target) {
-      return { text: "Statusbar: this command works only on Telegram." };
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sboff again.",
+      };
     }
 
     this.store.updateConversation(target, (current) => ({
@@ -534,15 +621,18 @@ class StatusbarRuntime {
 
   private async handleModeCommand(ctx: {
     channel: string;
+    senderId?: string;
     accountId?: string;
     to?: string;
     from?: string;
     messageThreadId?: number;
     args?: string;
   }): Promise<ReplyPayload> {
-    const target = resolveTelegramTargetFromCommandContext(ctx);
+    const target = this.resolveTargetForCommand(ctx);
     if (!target) {
-      return { text: "Statusbar: this command works only on Telegram." };
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbmode again.",
+      };
     }
 
     const nextMode = this.parseModeArg(ctx.args);

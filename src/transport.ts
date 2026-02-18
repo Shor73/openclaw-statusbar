@@ -23,6 +23,10 @@ type TelegramMessage = {
   chat?: { id?: number | string };
 };
 
+type TelegramActionResult = {
+  details?: Record<string, unknown>;
+};
+
 type TelegramTransportOptions = {
   api: OpenClawPluginApi;
   config: StatusbarPluginConfig;
@@ -84,6 +88,31 @@ function extractMessageMeta(result: TelegramMessage | true, fallback: StatusMess
   return {
     chatId,
     messageId,
+    updatedAt: Date.now(),
+  };
+}
+
+function extractMessageMetaFromDetails(
+  details: Record<string, unknown> | undefined,
+  fallback: StatusMessageRef,
+): StatusMessageRef {
+  const messageIdRaw = details?.messageId;
+  const chatIdRaw = details?.chatId;
+  const messageId =
+    typeof messageIdRaw === "number"
+      ? Math.trunc(messageIdRaw)
+      : typeof messageIdRaw === "string"
+        ? Number.parseInt(messageIdRaw, 10)
+        : Number.NaN;
+  const chatId =
+    typeof chatIdRaw === "string"
+      ? chatIdRaw
+      : typeof chatIdRaw === "number"
+        ? String(chatIdRaw)
+        : fallback.chatId;
+  return {
+    chatId,
+    messageId: Number.isFinite(messageId) ? messageId : fallback.messageId,
     updatedAt: Date.now(),
   };
 }
@@ -177,6 +206,29 @@ export class TelegramTransport {
     text: string;
     buttons?: TelegramInlineButtons;
   }): Promise<StatusMessageRef> {
+    try {
+      const result = await this.api.runtime.channel.telegram.sendMessageTelegram(
+        params.target.chatId,
+        params.text,
+        {
+          accountId: params.target.accountId,
+          messageThreadId: params.target.threadId ?? undefined,
+          buttons: params.buttons,
+          verbose: false,
+        },
+      );
+      const parsed = Number.parseInt(String(result.messageId), 10);
+      if (Number.isFinite(parsed)) {
+        return {
+          messageId: parsed,
+          chatId: result.chatId,
+          updatedAt: Date.now(),
+        };
+      }
+    } catch (err) {
+      this.api.logger.warn(`statusbar send fallback to direct API: ${String(err)}`);
+    }
+
     const token = this.resolveToken(params.target.accountId);
     const payload: Record<string, unknown> = {
       chat_id: params.target.chatId,
@@ -210,6 +262,37 @@ export class TelegramTransport {
     text: string;
     buttons?: TelegramInlineButtons;
   }): Promise<StatusMessageRef> {
+    try {
+      const messageActions = this.api.runtime.channel.telegram.messageActions;
+      if (messageActions?.handleAction) {
+        const actionResult = (await messageActions.handleAction({
+          channel: "telegram",
+          action: "edit",
+          cfg: this.api.config,
+          accountId: params.target.accountId,
+          params: {
+            chatId: params.message.chatId,
+            messageId: params.message.messageId,
+            message: params.text,
+            buttons: params.buttons,
+          },
+        })) as TelegramActionResult;
+        return extractMessageMetaFromDetails(actionResult.details, params.message);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (MESSAGE_NOT_MODIFIED_RE.test(message)) {
+        return {
+          ...params.message,
+          updatedAt: Date.now(),
+        };
+      }
+      throw new TelegramApiError({
+        code: 400,
+        description: message,
+      });
+    }
+
     const token = this.resolveToken(params.target.accountId);
     const payload: Record<string, unknown> = {
       chat_id: params.message.chatId,
