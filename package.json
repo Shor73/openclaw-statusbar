@@ -1,0 +1,26 @@
+{
+  "name": "openclaw-statusbar",
+  "version": "0.1.0",
+  "description": "Telegram statusline plugin for OpenClaw",
+  "type": "module",
+  "license": "MIT",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "src/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openclaw": "^2026.2.16",
+    "typescript": "^5.9.3"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
