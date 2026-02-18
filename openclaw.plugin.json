@@ -13,7 +13,8 @@
       "liveTickMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1000 },
       "maxRetries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 4 },
       "autoHideSeconds": { "type": "integer", "minimum": 0, "maximum": 600, "default": 0 },
-      "showInlineControls": { "type": "boolean", "default": true }
+      "showInlineControls": { "type": "boolean", "default": false },
+      "newMessagePerRun": { "type": "boolean", "default": true }
     }
   },
   "uiHints": {
@@ -24,6 +25,7 @@
     "liveTickMs": { "label": "Live Tick (ms)" },
     "maxRetries": { "label": "Max Retries" },
     "autoHideSeconds": { "label": "Auto-hide Seconds" },
-    "showInlineControls": { "label": "Show Inline Controls" }
+    "showInlineControls": { "label": "Show Inline Controls" },
+    "newMessagePerRun": { "label": "New Message Per Run" }
   }
 }

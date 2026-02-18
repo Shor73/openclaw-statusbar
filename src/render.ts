@@ -29,29 +29,64 @@ function resolveStatusLabel(session: SessionRuntime): string {
   }
 }
 
+function resolveStatusIcon(session: SessionRuntime): string {
+  switch (session.phase) {
+    case "queued":
+      return "⏳";
+    case "running":
+      return "⚡";
+    case "tool":
+      return "🛠️";
+    case "done":
+      return "✅";
+    case "error":
+      return "❌";
+    default:
+      return "💤";
+  }
+}
+
 export function renderStatusText(session: SessionRuntime, prefs: ConversationPrefs): string {
   const lines: string[] = [];
-  lines.push(`Status: ${resolveStatusLabel(session)}`);
+  const statusLabel = resolveStatusLabel(session);
+  const statusIcon = resolveStatusIcon(session);
+  const taskLabel = session.runNumber > 0 ? `#${session.runNumber}` : "#-";
+  lines.push(`${statusIcon} ${statusLabel} • Task ${taskLabel}`);
 
   if (prefs.mode !== "minimal") {
-    if (session.provider && session.model) {
-      lines.push(`Model: ${session.provider}/${session.model}`);
-    }
-    lines.push(`Elapsed: ${formatElapsed(session)}`);
+    lines.push(`⏱️ ${formatElapsed(session)}`);
   }
 
-  if (session.toolName) {
-    lines.push(`Tool: ${session.toolName}`);
+  if (prefs.mode === "normal") {
+    if (session.toolName) {
+      lines.push(`🧰 ${session.toolName}`);
+    }
+    if (session.provider && session.model) {
+      lines.push(`🤖 ${session.provider}/${session.model}`);
+    }
+    if (session.queuedCount > 0) {
+      lines.push(`📬 Queue: ${session.queuedCount}`);
+    }
+  }
+
+  if (prefs.mode === "detailed") {
+    if (session.provider && session.model) {
+      lines.push(`🤖 Model: ${session.provider}/${session.model}`);
+    }
+    if (session.toolName) {
+      lines.push(`🧰 Tool: ${session.toolName}`);
+    }
+    lines.push(`📬 Queue: ${session.queuedCount}`);
   }
 
   if (prefs.mode === "detailed" && (session.usageInput != null || session.usageOutput != null)) {
     const inTokens = session.usageInput ?? 0;
     const outTokens = session.usageOutput ?? 0;
-    lines.push(`Tokens: in ${inTokens} / out ${outTokens}`);
+    lines.push(`🔢 Tokens: in ${inTokens} / out ${outTokens}`);
   }
 
   if (session.phase === "error" && session.error) {
-    lines.push(`Error: ${session.error}`);
+    lines.push(`⚠️ Error: ${session.error}`);
   }
 
   return lines.join("\n");

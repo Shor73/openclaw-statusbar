@@ -11,6 +11,7 @@ export type StatusbarPluginConfig = {
   maxRetries: number;
   autoHideSeconds: number;
   showInlineControls: boolean;
+  newMessagePerRun: boolean;
 };
 
 export type TelegramTarget = {
@@ -43,6 +44,8 @@ export type SessionRuntime = {
   sessionKey: string;
   target: TelegramTarget;
   phase: RunPhase;
+  runNumber: number;
+  queuedCount: number;
   startedAtMs: number;
   endedAtMs: number | null;
   toolName: string | null;

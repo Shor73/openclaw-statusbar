@@ -6,7 +6,7 @@ import {
   resolveTelegramTargetFromMessageReceived,
   resolveTelegramTargetFromSessionKey,
 } from "./src/resolver.js";
-import { buildEnabledControls, renderStatusText } from "./src/render.js";
+import { renderStatusText } from "./src/render.js";
 import { StatusbarStore } from "./src/store.js";
 import { TelegramApiError, TelegramTransport } from "./src/transport.js";
 import type {
@@ -88,6 +88,13 @@ class StatusbarRuntime {
       description: "Reset statusbar message reference for this Telegram chat",
       acceptsArgs: false,
       handler: async (ctx) => await this.handleResetCommand(ctx),
+    });
+
+    this.api.registerCommand({
+      name: "sbsettings",
+      description: "Show statusbar settings and useful commands",
+      acceptsArgs: false,
+      handler: async (ctx) => await this.handleSettingsCommand(ctx),
     });
 
     this.api.on("message_received", async (event, ctx) => {
@@ -280,6 +287,8 @@ class StatusbarRuntime {
       sessionKey: params.sessionKey,
       target: params.target,
       phase: "idle",
+      runNumber: 0,
+      queuedCount: 0,
       startedAtMs: Date.now(),
       endedAtMs: null,
       toolName: null,
@@ -373,7 +382,7 @@ class StatusbarRuntime {
     session.isFlushing = true;
     try {
       const text = renderStatusText(session, prefs);
-      const controls = this.config.showInlineControls ? buildEnabledControls(prefs) : undefined;
+      const controls = undefined;
       const controlsKey = JSON.stringify(controls ?? null);
 
       if (
@@ -471,16 +480,23 @@ class StatusbarRuntime {
     }
 
     const session = this.getOrCreateSession(target);
-    session.phase = "queued";
-    session.startedAtMs = Date.now();
-    session.endedAtMs = null;
-    session.toolName = null;
-    session.error = null;
-    session.provider = null;
-    session.model = null;
-    session.usageInput = null;
-    session.usageOutput = null;
-    session.lastUsageRenderAtMs = 0;
+    const hadActiveRun =
+      session.phase === "queued" || session.phase === "running" || session.phase === "tool";
+
+    if (!hadActiveRun) {
+      session.phase = "queued";
+      session.startedAtMs = Date.now();
+      session.endedAtMs = null;
+      session.toolName = null;
+      session.error = null;
+      session.provider = null;
+      session.model = null;
+      session.usageInput = null;
+      session.usageOutput = null;
+      session.lastUsageRenderAtMs = 0;
+    }
+
+    session.queuedCount = Math.max(0, session.queuedCount) + 1;
     this.markDirty(session);
   }
 
@@ -501,12 +517,27 @@ class StatusbarRuntime {
     }
 
     const session = this.getOrCreateSession(target);
-    session.phase = "running";
-    if (!session.startedAtMs) {
-      session.startedAtMs = Date.now();
+    session.runNumber += 1;
+    session.queuedCount = Math.max(0, session.queuedCount - 1);
+
+    if (this.config.newMessagePerRun) {
+      this.store.setStatusMessage(target, null);
+      await this.store.persist();
+      session.lastRenderedText = null;
+      session.lastRenderedControlsKey = null;
+      session.renderedRevision = 0;
     }
+
+    session.phase = "running";
+    session.startedAtMs = Date.now();
     session.endedAtMs = null;
+    session.toolName = null;
     session.error = null;
+    session.provider = null;
+    session.model = null;
+    session.usageInput = null;
+    session.usageOutput = null;
+    session.lastUsageRenderAtMs = 0;
     session.nextAllowedAtMs = 0;
     this.markDirty(session);
   }
@@ -628,7 +659,9 @@ class StatusbarRuntime {
     session.error = event.error ?? null;
     session.nextAllowedAtMs = 0;
     this.markDirty(session);
-    this.scheduleAutoHide(session);
+    if (session.queuedCount <= 0) {
+      this.scheduleAutoHide(session);
+    }
   }
 
   private async handleEnableCommand(ctx: {
@@ -659,6 +692,7 @@ class StatusbarRuntime {
 
     const session = this.getOrCreateSession(target);
     session.phase = "idle";
+    session.queuedCount = 0;
     session.startedAtMs = Date.now();
     session.endedAtMs = Date.now();
     session.toolName = null;
@@ -727,11 +761,6 @@ class StatusbarRuntime {
       const current = this.store.getConversation(target);
       return {
         text: `Current mode: ${current.mode}\nUsage: /sbmode minimal|normal|detailed`,
-        channelData: {
-          telegram: {
-            buttons: buildEnabledControls(current),
-          },
-        },
       };
     }
 
@@ -774,6 +803,7 @@ class StatusbarRuntime {
 
     const prefs = this.store.getConversation(target);
     const ref = this.store.getStatusMessage(target);
+    const runtime = this.getOrCreateSession(target);
     const lines = [
       `Statusbar mapping`,
       `account=${target.accountId}`,
@@ -782,9 +812,11 @@ class StatusbarRuntime {
       `thread=${target.threadId ?? "main"}`,
       `enabled=${prefs.enabled}`,
       `mode=${prefs.mode}`,
+      `runNumber=${runtime.runNumber}`,
+      `queued=${runtime.queuedCount}`,
       `messageId=${ref?.messageId ?? "none"}`,
       `messageChat=${ref?.chatId ?? "none"}`,
-      `note=only this messageId is live-updated`,
+      `note=new status message is created at each run start`,
     ];
     return { text: lines.join("\n") };
   }
@@ -811,6 +843,7 @@ class StatusbarRuntime {
     if (prefs.enabled) {
       const session = this.getOrCreateSession(target);
       session.phase = "idle";
+      session.queuedCount = 0;
       session.startedAtMs = Date.now();
       session.endedAtMs = Date.now();
       session.toolName = null;
@@ -824,6 +857,39 @@ class StatusbarRuntime {
     return {
       text: `Statusbar message reference reset.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}\nLive messageId: ${ref?.messageId ?? "pending"}`,
     };
+  }
+
+  private async handleSettingsCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbsettings again.",
+      };
+    }
+
+    const prefs = this.store.getConversation(target);
+    const lines = [
+      "Statusbar settings",
+      `enabled=${prefs.enabled}`,
+      `mode=${prefs.mode}`,
+      `liveTickMs=${this.config.liveTickMs}`,
+      `throttleMs=${this.config.throttleMs}`,
+      `newMessagePerRun=${this.config.newMessagePerRun}`,
+      `inlineControls=${this.config.showInlineControls}`,
+      "",
+      "Commands:",
+      "/sbon  /sboff",
+      "/sbmode minimal|normal|detailed",
+      "/sbstatus  /sbreset",
+    ];
+    return { text: lines.join("\n") };
   }
 }
 

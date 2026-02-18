@@ -35,6 +35,7 @@ export function normalizePluginConfig(raw: unknown): StatusbarPluginConfig {
     liveTickMs: asInt(source.liveTickMs, 1000, 250, 10_000),
     maxRetries: asInt(source.maxRetries, 4, 0, 10),
     autoHideSeconds: asInt(source.autoHideSeconds, 0, 0, 600),
-    showInlineControls: asBool(source.showInlineControls, true),
+    showInlineControls: asBool(source.showInlineControls, false),
+    newMessagePerRun: asBool(source.newMessagePerRun, true),
   };
 }
