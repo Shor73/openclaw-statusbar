@@ -74,6 +74,20 @@ class StatusbarRuntime {
       handler: async (ctx) => await this.handleModeCommand(ctx),
     });
 
+    this.api.registerCommand({
+      name: "sbstatus",
+      description: "Show current statusbar mapping for this Telegram chat",
+      acceptsArgs: false,
+      handler: async (ctx) => await this.handleStatusCommand(ctx),
+    });
+
+    this.api.registerCommand({
+      name: "sbreset",
+      description: "Reset statusbar message reference for this Telegram chat",
+      acceptsArgs: false,
+      handler: async (ctx) => await this.handleResetCommand(ctx),
+    });
+
     this.api.on("message_received", async (event, ctx) => {
       await this.onMessageReceived(event, ctx);
     });
@@ -414,6 +428,7 @@ class StatusbarRuntime {
     }
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
+      this.api.logger.warn(`statusbar: no target for session on before_agent_start (${sessionKey})`);
       return;
     }
 
@@ -442,6 +457,7 @@ class StatusbarRuntime {
     }
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
+      this.api.logger.warn(`statusbar: no target for session on before_tool_call (${sessionKey})`);
       return;
     }
     const prefs = this.store.getConversation(target);
@@ -462,6 +478,7 @@ class StatusbarRuntime {
     }
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
+      this.api.logger.warn(`statusbar: no target for session on after_tool_call (${sessionKey})`);
       return;
     }
     const prefs = this.store.getConversation(target);
@@ -492,6 +509,7 @@ class StatusbarRuntime {
     }
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
+      this.api.logger.warn(`statusbar: no target for session on llm_output (${sessionKey})`);
       return;
     }
     const prefs = this.store.getConversation(target);
@@ -520,6 +538,7 @@ class StatusbarRuntime {
     }
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
+      this.api.logger.warn(`statusbar: no target for session on agent_end (${sessionKey})`);
       return;
     }
     const prefs = this.store.getConversation(target);
@@ -559,6 +578,7 @@ class StatusbarRuntime {
       ...current,
       enabled: true,
     }));
+    this.store.setStatusMessage(target, null);
     await this.store.persist();
 
     const sessionKey = `openclaw-statusbar:manual:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
@@ -571,7 +591,7 @@ class StatusbarRuntime {
     this.markDirty(session);
 
     return {
-      text: `Statusbar enabled. Mode: ${prefs.mode}`,
+      text: `Statusbar enabled. Mode: ${prefs.mode}\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
       channelData: {
         telegram: {
           buttons: buildEnabledControls(prefs),
@@ -666,12 +686,78 @@ class StatusbarRuntime {
     }
 
     return {
-      text: `Mode set: ${updated.mode}`,
+      text: `Mode set: ${updated.mode}\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
       channelData: {
         telegram: {
           buttons: buildEnabledControls(updated),
         },
       },
+    };
+  }
+
+  private async handleStatusCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbstatus again.",
+      };
+    }
+
+    const prefs = this.store.getConversation(target);
+    const ref = this.store.getStatusMessage(target);
+    const lines = [
+      `Statusbar mapping`,
+      `account=${target.accountId}`,
+      `conversation=${target.conversationId}`,
+      `chat=${target.chatId}`,
+      `thread=${target.threadId ?? "main"}`,
+      `enabled=${prefs.enabled}`,
+      `mode=${prefs.mode}`,
+      `messageId=${ref?.messageId ?? "none"}`,
+      `messageChat=${ref?.chatId ?? "none"}`,
+    ];
+    return { text: lines.join("\n") };
+  }
+
+  private async handleResetCommand(ctx: {
+    channel: string;
+    senderId?: string;
+    accountId?: string;
+    to?: string;
+    from?: string;
+    messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return {
+        text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbreset again.",
+      };
+    }
+
+    const prefs = this.store.getConversation(target);
+    this.store.setStatusMessage(target, null);
+    await this.store.persist();
+
+    if (prefs.enabled) {
+      const sessionKey = `openclaw-statusbar:reset:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
+      const session = this.getOrCreateSession(sessionKey, target);
+      session.phase = "idle";
+      session.startedAtMs = Date.now();
+      session.endedAtMs = Date.now();
+      session.toolName = null;
+      session.error = null;
+      this.markDirty(session);
+    }
+
+    return {
+      text: `Statusbar message reference reset.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
     };
   }
 }
