@@ -128,6 +128,11 @@ npm run typecheck
 
 Current phase: `v0.1` (core plugin + robust Telegram transport).
 
+Compatibility note:
+
+- tested with OpenClaw `2026.1.30`
+- aligned with latest npm release OpenClaw `2026.2.17`
+
 Planned next steps:
 
 - richer inline controls
