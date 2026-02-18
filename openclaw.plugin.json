@@ -8,8 +8,8 @@
     "properties": {
       "enabledByDefault": { "type": "boolean", "default": false },
       "defaultMode": { "type": "string", "enum": ["minimal", "normal", "detailed"], "default": "normal" },
-      "throttleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1200 },
-      "minThrottleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 900 },
+      "throttleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 3200 },
+      "minThrottleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 2500 },
       "maxRetries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 4 },
       "autoHideSeconds": { "type": "integer", "minimum": 0, "maximum": 600, "default": 0 },
       "showInlineControls": { "type": "boolean", "default": true }

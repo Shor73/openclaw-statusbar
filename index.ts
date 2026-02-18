@@ -251,6 +251,7 @@ class StatusbarRuntime {
       model: null,
       usageInput: null,
       usageOutput: null,
+      lastUsageRenderAtMs: 0,
       error: null,
       lastRenderedText: null,
       lastRenderedControlsKey: null,
@@ -437,6 +438,7 @@ class StatusbarRuntime {
     session.model = null;
     session.usageInput = null;
     session.usageOutput = null;
+    session.lastUsageRenderAtMs = 0;
     this.markDirty(session);
   }
 
@@ -463,6 +465,7 @@ class StatusbarRuntime {
     }
     session.endedAtMs = null;
     session.error = null;
+    session.nextAllowedAtMs = 0;
     this.markDirty(session);
   }
 
@@ -487,6 +490,7 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(sessionKey, target);
     session.phase = "tool";
     session.toolName = event.toolName;
+    session.nextAllowedAtMs = 0;
     this.markDirty(session);
   }
 
@@ -508,6 +512,7 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(sessionKey, target);
     session.phase = "running";
     session.toolName = null;
+    session.nextAllowedAtMs = 0;
     this.markDirty(session);
   }
 
@@ -543,7 +548,12 @@ class StatusbarRuntime {
     session.usageOutput =
       typeof event.usage?.output === "number" ? Math.trunc(event.usage.output) : 0;
     if (prefs.mode === "detailed") {
-      this.markDirty(session);
+      const nowMs = Date.now();
+      const usageIntervalMs = Math.max(this.config.minThrottleMs, this.config.throttleMs, 3000);
+      if (nowMs - session.lastUsageRenderAtMs >= usageIntervalMs) {
+        session.lastUsageRenderAtMs = nowMs;
+        this.markDirty(session);
+      }
     }
   }
 
@@ -574,6 +584,7 @@ class StatusbarRuntime {
     session.phase = event.success ? "done" : "error";
     session.toolName = null;
     session.error = event.error ?? null;
+    session.nextAllowedAtMs = 0;
     this.markDirty(session);
     this.scheduleAutoHide(session);
   }

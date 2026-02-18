@@ -49,6 +49,7 @@ export type SessionRuntime = {
   model: string | null;
   usageInput: number | null;
   usageOutput: number | null;
+  lastUsageRenderAtMs: number;
   error: string | null;
   lastRenderedText: string | null;
   lastRenderedControlsKey: string | null;
