@@ -590,9 +590,16 @@ export default {
   id: "openclaw-statusbar",
   name: "Statusbar",
   description: "Telegram statusline for OpenClaw agent runs",
-  async register(api: OpenClawPluginApi) {
+  register(api: OpenClawPluginApi) {
     const runtime = new StatusbarRuntime(api);
-    await runtime.init();
-    api.logger.info("openclaw-statusbar plugin initialized");
+    void runtime
+      .init()
+      .then(() => {
+        api.logger.info("openclaw-statusbar plugin initialized");
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        api.logger.error(`openclaw-statusbar init failed: ${message}`);
+      });
   },
 };
