@@ -6,7 +6,7 @@ import {
   resolveTelegramTargetFromMessageReceived,
   resolveTelegramTargetFromSessionKey,
 } from "./src/resolver.js";
-import { buildDisabledControls, buildEnabledControls, renderStatusText } from "./src/render.js";
+import { buildEnabledControls, renderStatusText } from "./src/render.js";
 import { StatusbarStore } from "./src/store.js";
 import { TelegramApiError, TelegramTransport } from "./src/transport.js";
 import type {
@@ -612,14 +612,11 @@ class StatusbarRuntime {
     session.toolName = null;
     session.error = null;
     this.markDirty(session);
+    await this.flushSession(sessionKey);
+    const ref = this.store.getStatusMessage(target);
 
     return {
-      text: `Statusbar enabled. Mode: ${prefs.mode}\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
-      channelData: {
-        telegram: {
-          buttons: buildEnabledControls(prefs),
-        },
-      },
+      text: `Statusbar enabled. Mode: ${prefs.mode}\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}\nLive messageId: ${ref?.messageId ?? "pending"}`,
     };
   }
 
@@ -646,11 +643,6 @@ class StatusbarRuntime {
 
     return {
       text: "Statusbar disabled.",
-      channelData: {
-        telegram: {
-          buttons: buildDisabledControls(),
-        },
-      },
     };
   }
 
@@ -710,11 +702,6 @@ class StatusbarRuntime {
 
     return {
       text: `Mode set: ${updated.mode}\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
-      channelData: {
-        telegram: {
-          buttons: buildEnabledControls(updated),
-        },
-      },
     };
   }
 
@@ -745,6 +732,7 @@ class StatusbarRuntime {
       `mode=${prefs.mode}`,
       `messageId=${ref?.messageId ?? "none"}`,
       `messageChat=${ref?.chatId ?? "none"}`,
+      `note=only this messageId is live-updated`,
     ];
     return { text: lines.join("\n") };
   }
@@ -777,10 +765,13 @@ class StatusbarRuntime {
       session.toolName = null;
       session.error = null;
       this.markDirty(session);
+      await this.flushSession(sessionKey);
     }
 
+    const ref = this.store.getStatusMessage(target);
+
     return {
-      text: `Statusbar message reference reset.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
+      text: `Statusbar message reference reset.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}\nLive messageId: ${ref?.messageId ?? "pending"}`,
     };
   }
 }
