@@ -11,6 +11,13 @@ Live Telegram status line plugin for OpenClaw.
 
 ## Preview
 
+### Live animated SVG
+
+![OpenClaw Statusbar Animated Preview](./assets/statusline-preview.svg)
+
+If GitHub image proxy caching delays animation updates, open the raw file directly:
+`assets/statusline-preview.svg`.
+
 ### Minimal mode
 
 ```text

@@ -1,0 +1,190 @@
+<svg width="1400" height="900" viewBox="0 0 1400 900" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">OpenClaw Statusbar Telegram Preview</title>
+  <desc id="desc">Animated preview showing a Telegram chat with a live OpenClaw status line updating in place.</desc>
+
+  <defs>
+    <linearGradient id="bgGradient" x1="120" y1="80" x2="1280" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A1B2A"/>
+      <stop offset="0.52" stop-color="#0E2A3F"/>
+      <stop offset="1" stop-color="#101928"/>
+    </linearGradient>
+
+    <radialGradient id="ambientA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(240 190) rotate(20) scale(360 260)">
+      <stop stop-color="#2FC0F5" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#2FC0F5" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="ambientB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1170 760) rotate(-18) scale(460 320)">
+      <stop stop-color="#38D996" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#38D996" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="glass" x1="260" y1="120" x2="1120" y2="820" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="statusCard" x1="340" y1="405" x2="1080" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1725"/>
+      <stop offset="1" stop-color="#0B1220"/>
+    </linearGradient>
+
+    <linearGradient id="statusBorder" x1="340" y1="405" x2="1070" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2FC0F5" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#38D996" stop-opacity="0.65"/>
+    </linearGradient>
+
+    <linearGradient id="progressFill" x1="370" y1="572" x2="960" y2="572" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2FC0F5"/>
+      <stop offset="0.52" stop-color="#35D1D7"/>
+      <stop offset="1" stop-color="#38D996"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="250" y="130" width="920" height="700" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="26" result="blur"/>
+      <feOffset dy="12"/>
+      <feComposite in2="blur" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.02 0 0 0 0 0.08 0 0 0 0 0.16 0 0 0 0.6 0"/>
+      <feBlend mode="normal" in2="SourceGraphic" result="shape"/>
+    </filter>
+
+    <clipPath id="chatClip">
+      <rect x="290" y="146" width="820" height="620" rx="28"/>
+    </clipPath>
+
+    <style>
+      .ui-text { font-family: "Segoe UI", Inter, Arial, sans-serif; }
+      .title { font-size: 34px; font-weight: 700; fill: #EAF5FF; letter-spacing: 0.4px; }
+      .subtitle { font-size: 18px; font-weight: 500; fill: #A9C5DD; }
+      .chatLabel { font-size: 15px; font-weight: 600; fill: #C8DDF0; }
+      .bubbleText { font-size: 18px; font-weight: 500; fill: #EAF5FF; }
+      .statusHead { font-size: 16px; font-weight: 700; fill: #A8C9E8; letter-spacing: 1.1px; }
+      .statusMain { font-size: 25px; font-weight: 700; fill: #F5FBFF; }
+      .statusMeta { font-size: 17px; font-weight: 500; fill: #B7D0E7; }
+      .chipText { font-size: 14px; font-weight: 700; fill: #D9EEFF; letter-spacing: 0.6px; }
+      .footerText { font-size: 14px; font-weight: 500; fill: #8FB1CD; }
+
+      .pulseDot {
+        animation: dotPulse 1.8s ease-in-out infinite;
+        transform-origin: 388px 442px;
+      }
+
+      .spinner {
+        transform-origin: 1000px 448px;
+        animation: spin 1.6s linear infinite;
+      }
+
+      .progressBar {
+        animation: progressMove 3.2s ease-in-out infinite;
+      }
+
+      .progressGlow {
+        animation: progressGlow 1.6s ease-in-out infinite;
+      }
+
+      .cursor {
+        animation: blink 1s steps(1, end) infinite;
+      }
+
+      .phaseChipTool {
+        animation: chipPulse 1.9s ease-in-out infinite;
+      }
+
+      @keyframes dotPulse {
+        0%, 100% { opacity: 0.45; transform: scale(0.88); }
+        50% { opacity: 1; transform: scale(1.08); }
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes progressMove {
+        0% { width: 280px; }
+        50% { width: 548px; }
+        100% { width: 420px; }
+      }
+
+      @keyframes progressGlow {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 0.55; }
+      }
+
+      @keyframes blink {
+        0%, 49% { opacity: 1; }
+        50%, 100% { opacity: 0; }
+      }
+
+      @keyframes chipPulse {
+        0%, 100% { fill: #1A3148; }
+        50% { fill: #254B69; }
+      }
+    </style>
+  </defs>
+
+  <rect width="1400" height="900" fill="url(#bgGradient)"/>
+  <rect width="1400" height="900" fill="url(#ambientA)"/>
+  <rect width="1400" height="900" fill="url(#ambientB)"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="270" y="126" width="860" height="660" rx="34" fill="#0A1320"/>
+    <rect x="270.5" y="126.5" width="859" height="659" rx="33.5" stroke="#3A5976" stroke-opacity="0.45"/>
+    <rect x="270" y="126" width="860" height="660" rx="34" fill="url(#glass)"/>
+  </g>
+
+  <g clip-path="url(#chatClip)">
+    <rect x="290" y="146" width="820" height="620" fill="#0D1A2A"/>
+
+    <rect x="332" y="198" width="392" height="88" rx="24" fill="#163754"/>
+    <text class="ui-text bubbleText" x="362" y="241">Can you summarize today's build?</text>
+
+    <rect x="474" y="304" width="592" height="86" rx="24" fill="#1B4B3D"/>
+    <text class="ui-text bubbleText" x="510" y="347">Sure. Running checks and preparing notes.</text>
+
+    <rect x="340" y="410" width="720" height="220" rx="26" fill="url(#statusCard)"/>
+    <rect x="340.8" y="410.8" width="718.4" height="218.4" rx="25.2" stroke="url(#statusBorder)"/>
+
+    <circle class="pulseDot" cx="388" cy="442" r="8" fill="#38D996"/>
+    <text class="ui-text statusHead" x="410" y="448">STATUS: RUNNING</text>
+
+    <g class="spinner">
+      <circle cx="1000" cy="448" r="12" stroke="#2A4C67" stroke-width="4"/>
+      <path d="M1000 436 A12 12 0 0 1 1011 445" stroke="#2FC0F5" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <text class="ui-text statusMain" x="372" y="496">Model: openai/gpt-5</text>
+    <text class="ui-text statusMeta" x="372" y="532">Tool: browser.fetch</text>
+    <text class="ui-text statusMeta" x="372" y="558">Elapsed: 00:18</text>
+
+    <rect x="370" y="572" width="660" height="14" rx="7" fill="#1A3048"/>
+    <rect class="progressBar" x="370" y="572" width="420" height="14" rx="7" fill="url(#progressFill)"/>
+    <rect class="progressGlow" x="370" y="572" width="660" height="14" rx="7" fill="#9CE9FF" opacity="0.28"/>
+
+    <rect x="370" y="602" width="106" height="30" rx="15" fill="#1D384F"/>
+    <text class="ui-text chipText" x="394" y="622">QUEUED</text>
+
+    <rect x="486" y="602" width="118" height="30" rx="15" fill="#214763"/>
+    <text class="ui-text chipText" x="517" y="622">RUNNING</text>
+
+    <rect class="phaseChipTool" x="614" y="602" width="96" height="30" rx="15"/>
+    <text class="ui-text chipText" x="643" y="622">TOOL</text>
+
+    <text class="ui-text footerText" x="738" y="621">updated in-place</text>
+
+    <text class="ui-text statusMeta" x="372" y="670">Tokens: in 1281 / out 764</text>
+    <text class="ui-text statusMeta" x="640" y="670">Cost: estimating...</text>
+    <text class="ui-text statusMeta cursor" x="801" y="670">|</text>
+  </g>
+
+  <rect x="290.5" y="146.5" width="819" height="619" rx="27.5" stroke="#7AA9CD" stroke-opacity="0.2"/>
+
+  <text class="ui-text title" x="292" y="88">OpenClaw Statusbar Plugin</text>
+  <text class="ui-text subtitle" x="292" y="116">Telegram live statusline preview with animated phases and in-place updates</text>
+
+  <g>
+    <rect x="962" y="82" width="168" height="38" rx="19" fill="#0E263A"/>
+    <rect x="962.5" y="82.5" width="167" height="37" rx="18.5" stroke="#2FC0F5" stroke-opacity="0.55"/>
+    <text class="ui-text chatLabel" x="997" y="106">/sbmode detailed</text>
+  </g>
+</svg>
