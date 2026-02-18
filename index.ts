@@ -203,6 +203,18 @@ class StatusbarRuntime {
       return fromKey;
     }
 
+    const mainSessionMatch = key.match(/^agent:([^:]+):main$/);
+    if (mainSessionMatch?.[1]) {
+      const accountId = mainSessionMatch[1].trim();
+      if (accountId) {
+        const fromStore = this.store.findMostRecentTargetForAccount(accountId);
+        if (fromStore) {
+          this.trackSessionTarget(key, fromStore);
+          return fromStore;
+        }
+      }
+    }
+
     return null;
   }
 
@@ -589,6 +601,7 @@ class StatusbarRuntime {
     // OpenClaw can run DM chats on the shared main session (agent:main:main).
     // Keep this alias mapped so lifecycle hooks can always resolve the Telegram target.
     this.trackSessionTarget("agent:main:main", target);
+    this.trackSessionTarget(`agent:${target.accountId}:main`, target);
     await this.store.persist();
 
     const sessionKey = `openclaw-statusbar:manual:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;

@@ -124,4 +124,44 @@ export class StatusbarStore {
   async persist(): Promise<void> {
     await writeStoreFile(this.filePath, this.data);
   }
+
+  findMostRecentTargetForAccount(accountId: string): TelegramTarget | null {
+    const normalizedAccount = accountId.trim();
+    if (!normalizedAccount) {
+      return null;
+    }
+
+    let best: { conversationId: string; updatedAt: number } | null = null;
+    for (const [key, prefs] of Object.entries(this.data.conversations)) {
+      if (!key.startsWith(`${normalizedAccount}::`)) {
+        continue;
+      }
+      const conversationId = key.slice(`${normalizedAccount}::`.length);
+      if (!conversationId || !conversationId.startsWith("telegram:")) {
+        continue;
+      }
+      const updatedAt =
+        typeof prefs.updatedAt === "number" && Number.isFinite(prefs.updatedAt) ? prefs.updatedAt : 0;
+      if (!best || updatedAt > best.updatedAt) {
+        best = { conversationId, updatedAt };
+      }
+    }
+
+    if (!best) {
+      return null;
+    }
+
+    const chatId = best.conversationId.slice("telegram:".length).trim();
+    if (!chatId) {
+      return null;
+    }
+
+    return {
+      channelId: "telegram",
+      accountId: normalizedAccount,
+      conversationId: best.conversationId,
+      chatId,
+      threadId: null,
+    };
+  }
 }
