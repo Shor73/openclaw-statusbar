@@ -271,6 +271,10 @@ class StatusbarRuntime {
     });
   }
 
+  private resolveRuntimeSessionKey(target: TelegramTarget): string {
+    return `target:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
+  }
+
   private createSessionState(params: { sessionKey: string; target: TelegramTarget }): SessionRuntime {
     return {
       sessionKey: params.sessionKey,
@@ -297,14 +301,15 @@ class StatusbarRuntime {
     };
   }
 
-  private getOrCreateSession(sessionKey: string, target: TelegramTarget): SessionRuntime {
-    const existing = this.sessions.get(sessionKey);
+  private getOrCreateSession(target: TelegramTarget): SessionRuntime {
+    const runtimeSessionKey = this.resolveRuntimeSessionKey(target);
+    const existing = this.sessions.get(runtimeSessionKey);
     if (existing) {
       existing.target = target;
       return existing;
     }
-    const created = this.createSessionState({ sessionKey, target });
-    this.sessions.set(sessionKey, created);
+    const created = this.createSessionState({ sessionKey: runtimeSessionKey, target });
+    this.sessions.set(runtimeSessionKey, created);
     return created;
   }
 
@@ -437,7 +442,7 @@ class StatusbarRuntime {
   }
 
   private async onMessageReceived(
-    event: { from: string; metadata?: Record<string, unknown> },
+    event: { from: string; content?: string; metadata?: Record<string, unknown> },
     ctx: { channelId: string; accountId?: string; conversationId?: string },
   ): Promise<void> {
     const target = resolveTelegramTargetFromMessageReceived({ event, ctx });
@@ -455,12 +460,17 @@ class StatusbarRuntime {
     const senderIdRaw = event.metadata?.senderId;
     this.trackSenderTarget(typeof senderIdRaw === "string" ? senderIdRaw : null, target);
 
+    const messageContent = (event.content ?? "").trim();
+    if (/^\/[a-z0-9_]+(?:\s|$)/i.test(messageContent)) {
+      return;
+    }
+
     const prefs = this.store.getConversation(target);
     if (!prefs.enabled) {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.phase = "queued";
     session.startedAtMs = Date.now();
     session.endedAtMs = null;
@@ -490,7 +500,7 @@ class StatusbarRuntime {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.phase = "running";
     if (!session.startedAtMs) {
       session.startedAtMs = Date.now();
@@ -519,7 +529,7 @@ class StatusbarRuntime {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.phase = "tool";
     session.toolName = event.toolName;
     session.nextAllowedAtMs = 0;
@@ -541,7 +551,7 @@ class StatusbarRuntime {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.phase = "running";
     session.toolName = null;
     session.nextAllowedAtMs = 0;
@@ -573,7 +583,7 @@ class StatusbarRuntime {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.provider = event.provider;
     session.model = event.model;
     session.usageInput = typeof event.usage?.input === "number" ? Math.trunc(event.usage.input) : 0;
@@ -607,7 +617,7 @@ class StatusbarRuntime {
       return;
     }
 
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     const nowMs = Date.now();
     if (typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs > 0) {
       session.startedAtMs = nowMs - Math.trunc(event.durationMs);
@@ -647,15 +657,14 @@ class StatusbarRuntime {
     this.trackSessionTarget(`agent:${target.accountId}:main`, target);
     await this.store.persist();
 
-    const sessionKey = `openclaw-statusbar:manual:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
-    const session = this.getOrCreateSession(sessionKey, target);
+    const session = this.getOrCreateSession(target);
     session.phase = "idle";
     session.startedAtMs = Date.now();
     session.endedAtMs = Date.now();
     session.toolName = null;
     session.error = null;
     this.markDirty(session);
-    await this.flushSession(sessionKey);
+    await this.flushSession(session.sessionKey);
     const ref = this.store.getStatusMessage(target);
 
     return {
@@ -800,15 +809,14 @@ class StatusbarRuntime {
     await this.store.persist();
 
     if (prefs.enabled) {
-      const sessionKey = `openclaw-statusbar:reset:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
-      const session = this.getOrCreateSession(sessionKey, target);
+      const session = this.getOrCreateSession(target);
       session.phase = "idle";
       session.startedAtMs = Date.now();
       session.endedAtMs = Date.now();
       session.toolName = null;
       session.error = null;
       this.markDirty(session);
-      await this.flushSession(sessionKey);
+      await this.flushSession(session.sessionKey);
     }
 
     const ref = this.store.getStatusMessage(target);
