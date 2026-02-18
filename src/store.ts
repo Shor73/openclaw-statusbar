@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   ConversationPrefs,
+  ProgressMode,
   PersistedStore,
+  StatusLayout,
   StatusMessageRef,
   StatusMode,
   TelegramTarget,
@@ -10,11 +12,21 @@ import type {
 
 const STORE_FILE = path.join("plugins", "openclaw-statusbar", "state.json");
 
-function defaultConversation(enabledByDefault: boolean, mode: StatusMode): ConversationPrefs {
+function defaultConversation(
+  enabledByDefault: boolean,
+  mode: StatusMode,
+  layout: StatusLayout,
+  progressMode: ProgressMode,
+): ConversationPrefs {
   return {
     enabled: enabledByDefault,
     mode,
+    layout,
+    progressMode,
     pinMode: false,
+    historyRuns: 0,
+    avgDurationMs: 0,
+    avgSteps: 0,
     statusMessagesByThread: {},
     updatedAt: Date.now(),
   };
@@ -54,12 +66,22 @@ export class StatusbarStore {
   private readonly filePath: string;
   private readonly enabledByDefault: boolean;
   private readonly defaultMode: StatusMode;
+  private readonly defaultLayout: StatusLayout;
+  private readonly defaultProgressMode: ProgressMode;
   private data: PersistedStore = { version: 1, conversations: {} };
 
-  constructor(params: { stateDir: string; enabledByDefault: boolean; defaultMode: StatusMode }) {
+  constructor(params: {
+    stateDir: string;
+    enabledByDefault: boolean;
+    defaultMode: StatusMode;
+    defaultLayout: StatusLayout;
+    defaultProgressMode: ProgressMode;
+  }) {
     this.filePath = resolveStorePath(params.stateDir);
     this.enabledByDefault = params.enabledByDefault;
     this.defaultMode = params.defaultMode;
+    this.defaultLayout = params.defaultLayout;
+    this.defaultProgressMode = params.defaultProgressMode;
   }
 
   async load(): Promise<void> {
@@ -88,8 +110,23 @@ export class StatusbarStore {
       if (existing.mode !== "minimal" && existing.mode !== "normal" && existing.mode !== "detailed") {
         existing.mode = this.defaultMode;
       }
+      if (existing.layout !== "tiny1") {
+        existing.layout = this.defaultLayout;
+      }
+      if (existing.progressMode !== "strict" && existing.progressMode !== "predictive") {
+        existing.progressMode = this.defaultProgressMode;
+      }
       if (typeof existing.pinMode !== "boolean") {
         existing.pinMode = false;
+      }
+      if (typeof existing.historyRuns !== "number" || !Number.isFinite(existing.historyRuns)) {
+        existing.historyRuns = 0;
+      }
+      if (typeof existing.avgDurationMs !== "number" || !Number.isFinite(existing.avgDurationMs)) {
+        existing.avgDurationMs = 0;
+      }
+      if (typeof existing.avgSteps !== "number" || !Number.isFinite(existing.avgSteps)) {
+        existing.avgSteps = 0;
       }
       if (
         typeof existing.statusMessagesByThread !== "object" ||
@@ -99,7 +136,12 @@ export class StatusbarStore {
       }
       return existing;
     }
-    const next = defaultConversation(this.enabledByDefault, this.defaultMode);
+    const next = defaultConversation(
+      this.enabledByDefault,
+      this.defaultMode,
+      this.defaultLayout,
+      this.defaultProgressMode,
+    );
     this.data.conversations[key] = next;
     return next;
   }

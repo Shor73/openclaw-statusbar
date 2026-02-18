@@ -1,10 +1,14 @@
 export type StatusMode = "minimal" | "normal" | "detailed";
+export type StatusLayout = "tiny1";
+export type ProgressMode = "strict" | "predictive";
 
 export type RunPhase = "idle" | "queued" | "running" | "tool" | "done" | "error";
 
 export type StatusbarPluginConfig = {
   enabledByDefault: boolean;
   defaultMode: StatusMode;
+  defaultLayout: StatusLayout;
+  defaultProgressMode: ProgressMode;
   throttleMs: number;
   minThrottleMs: number;
   liveTickMs: number;
@@ -31,7 +35,12 @@ export type StatusMessageRef = {
 export type ConversationPrefs = {
   enabled: boolean;
   mode: StatusMode;
+  layout: StatusLayout;
+  progressMode: ProgressMode;
   pinMode: boolean;
+  historyRuns: number;
+  avgDurationMs: number;
+  avgSteps: number;
   statusMessagesByThread: Record<string, StatusMessageRef>;
   updatedAt: number;
 };
@@ -47,6 +56,7 @@ export type SessionRuntime = {
   phase: RunPhase;
   runNumber: number;
   queuedCount: number;
+  currentRunSteps: number;
   startedAtMs: number;
   endedAtMs: number | null;
   toolName: string | null;

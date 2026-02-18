@@ -13,7 +13,6 @@ import type {
   SessionRuntime,
   StatusMode,
   StatusbarPluginConfig,
-  TelegramInlineButtons,
   TelegramTarget,
 } from "./src/types.js";
 
@@ -47,6 +46,8 @@ class StatusbarRuntime {
       stateDir,
       enabledByDefault: this.config.enabledByDefault,
       defaultMode: this.config.defaultMode,
+      defaultLayout: this.config.defaultLayout,
+      defaultProgressMode: this.config.defaultProgressMode,
     });
     this.transport = new TelegramTransport({ api, config: this.config });
   }
@@ -303,6 +304,7 @@ class StatusbarRuntime {
       phase: "idle",
       runNumber: 0,
       queuedCount: 0,
+      currentRunSteps: 0,
       startedAtMs: Date.now(),
       endedAtMs: null,
       toolName: null,
@@ -374,6 +376,7 @@ class StatusbarRuntime {
       current.phase = "idle";
       current.toolName = null;
       current.error = null;
+      current.currentRunSteps = 0;
       this.markDirty(current);
     }, this.config.autoHideSeconds * 1000);
   }
@@ -521,6 +524,7 @@ class StatusbarRuntime {
       session.phase = "queued";
       session.startedAtMs = Date.now();
       session.endedAtMs = null;
+      session.currentRunSteps = 0;
       session.toolName = null;
       session.error = null;
       session.provider = null;
@@ -553,6 +557,7 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     session.runNumber += 1;
     session.queuedCount = Math.max(0, session.queuedCount - 1);
+    session.currentRunSteps = 0;
 
     session.phase = "running";
     session.startedAtMs = Date.now();
@@ -587,6 +592,7 @@ class StatusbarRuntime {
     }
 
     const session = this.getOrCreateSession(target);
+    session.currentRunSteps += 1;
     session.phase = "tool";
     session.toolName = event.toolName;
     session.nextAllowedAtMs = 0;
@@ -685,6 +691,24 @@ class StatusbarRuntime {
     session.error = event.error ?? null;
     session.nextAllowedAtMs = 0;
     this.markDirty(session);
+    if (event.success) {
+      const durationMs = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
+      const completedSteps = Math.max(1, session.currentRunSteps);
+      this.store.updateConversation(target, (current) => {
+        const n = Math.max(0, current.historyRuns);
+        const nextRuns = n + 1;
+        const nextAvgDurationMs =
+          n === 0 ? durationMs : Math.round((current.avgDurationMs * n + durationMs) / nextRuns);
+        const nextAvgSteps = n === 0 ? completedSteps : (current.avgSteps * n + completedSteps) / nextRuns;
+        return {
+          ...current,
+          historyRuns: nextRuns,
+          avgDurationMs: nextAvgDurationMs,
+          avgSteps: Number.isFinite(nextAvgSteps) ? nextAvgSteps : completedSteps,
+        };
+      });
+      await this.store.persist();
+    }
     if (session.queuedCount <= 0) {
       this.scheduleAutoHide(session);
     }
@@ -719,6 +743,7 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     session.phase = "idle";
     session.queuedCount = 0;
+    session.currentRunSteps = 0;
     session.startedAtMs = Date.now();
     session.endedAtMs = Date.now();
     session.toolName = null;
@@ -838,7 +863,12 @@ class StatusbarRuntime {
       `thread=${target.threadId ?? "main"}`,
       `enabled=${prefs.enabled}`,
       `mode=${prefs.mode}`,
+      `layout=${prefs.layout}`,
+      `progressMode=${prefs.progressMode}`,
       `pinMode=${prefs.pinMode}`,
+      `historyRuns=${prefs.historyRuns}`,
+      `avgDurationMs=${prefs.avgDurationMs}`,
+      `avgSteps=${prefs.avgSteps.toFixed(2)}`,
       `runNumber=${runtime.runNumber}`,
       `queued=${runtime.queuedCount}`,
       `messageId=${ref?.messageId ?? "none"}`,
@@ -873,6 +903,7 @@ class StatusbarRuntime {
       const session = this.getOrCreateSession(target);
       session.phase = "idle";
       session.queuedCount = 0;
+      session.currentRunSteps = 0;
       session.startedAtMs = Date.now();
       session.endedAtMs = Date.now();
       session.toolName = null;
@@ -986,6 +1017,8 @@ class StatusbarRuntime {
       "Statusbar settings",
       `enabled=${prefs.enabled}`,
       `mode=${prefs.mode}`,
+      `layout=${prefs.layout}`,
+      `progressMode=${prefs.progressMode}`,
       `pinMode=${prefs.pinMode}`,
       `liveTickMs=${this.config.liveTickMs}`,
       `throttleMs=${this.config.throttleMs}`,

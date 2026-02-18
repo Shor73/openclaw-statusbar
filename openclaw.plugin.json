@@ -8,6 +8,8 @@
     "properties": {
       "enabledByDefault": { "type": "boolean", "default": false },
       "defaultMode": { "type": "string", "enum": ["minimal", "normal", "detailed"], "default": "normal" },
+      "defaultLayout": { "type": "string", "enum": ["tiny1"], "default": "tiny1" },
+      "defaultProgressMode": { "type": "string", "enum": ["strict", "predictive"], "default": "predictive" },
       "throttleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1200 },
       "minThrottleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 900 },
       "liveTickMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1000 },
@@ -20,6 +22,8 @@
   "uiHints": {
     "enabledByDefault": { "label": "Enabled By Default" },
     "defaultMode": { "label": "Default Mode" },
+    "defaultLayout": { "label": "Default Layout" },
+    "defaultProgressMode": { "label": "Default Progress Mode" },
     "throttleMs": { "label": "Throttle (ms)" },
     "minThrottleMs": { "label": "Minimum Throttle (ms)" },
     "liveTickMs": { "label": "Live Tick (ms)" },
