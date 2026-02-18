@@ -1,28 +1,28 @@
 # openclaw-statusbar
 
-Plugin OpenClaw per mostrare una statusline live in Telegram durante l'esecuzione dell'agente.
+OpenClaw plugin that shows a live status line in Telegram while the agent is running.
 
-## Funzioni (v0.1)
+## Features (v0.1)
 
-- Comandi rapidi:
-  - `/sbon` abilita la statusline nella chat corrente
-  - `/sboff` disabilita la statusline nella chat corrente
-  - `/sbmode minimal|normal|detailed` cambia il livello di dettaglio
-- Hook usati:
+- Quick commands:
+  - `/sbon` enables the status line in the current chat
+  - `/sboff` disables the status line in the current chat
+  - `/sbmode minimal|normal|detailed` changes the detail level
+- Hooks used:
   - `message_received`
   - `before_agent_start`
   - `before_tool_call`
   - `after_tool_call`
   - `llm_output`
   - `agent_end`
-- Update Telegram in-place con `editMessageText`
-- Gestione robusta errori Telegram:
-  - 429 con `retry_after` + jitter
-  - `message to edit not found` con ricreazione del messaggio
+- In-place Telegram updates via `editMessageText`
+- Robust Telegram error handling:
+  - 429 with `retry_after` + jitter
+  - `message to edit not found` with message recreation
 
-## Installazione locale (dev)
+## Local install (dev)
 
-Aggiungi il path alla config OpenClaw:
+Add the plugin path to your OpenClaw config:
 
 ```json5
 {
@@ -43,7 +43,7 @@ Aggiungi il path alla config OpenClaw:
 }
 ```
 
-Riavvia il gateway dopo la modifica.
+Restart the gateway after changing config.
 
 ## Config
 

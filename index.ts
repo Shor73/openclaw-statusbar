@@ -468,7 +468,7 @@ class StatusbarRuntime {
   }): Promise<ReplyPayload> {
     const target = resolveTelegramTargetFromCommandContext(ctx);
     if (!target) {
-      return { text: "Statusbar: questo comando funziona solo su Telegram." };
+      return { text: "Statusbar: this command works only on Telegram." };
     }
 
     const prefs = this.store.updateConversation(target, (current) => ({
@@ -487,7 +487,7 @@ class StatusbarRuntime {
     this.markDirty(session);
 
     return {
-      text: `Statusbar attiva. Mode: ${prefs.mode}`,
+      text: `Statusbar enabled. Mode: ${prefs.mode}`,
       channelData: {
         telegram: {
           buttons: buildEnabledControls(prefs),
@@ -505,7 +505,7 @@ class StatusbarRuntime {
   }): Promise<ReplyPayload> {
     const target = resolveTelegramTargetFromCommandContext(ctx);
     if (!target) {
-      return { text: "Statusbar: questo comando funziona solo su Telegram." };
+      return { text: "Statusbar: this command works only on Telegram." };
     }
 
     this.store.updateConversation(target, (current) => ({
@@ -515,7 +515,7 @@ class StatusbarRuntime {
     await this.store.persist();
 
     return {
-      text: "Statusbar disattivata.",
+      text: "Statusbar disabled.",
       channelData: {
         telegram: {
           buttons: buildDisabledControls(),
@@ -542,14 +542,14 @@ class StatusbarRuntime {
   }): Promise<ReplyPayload> {
     const target = resolveTelegramTargetFromCommandContext(ctx);
     if (!target) {
-      return { text: "Statusbar: questo comando funziona solo su Telegram." };
+      return { text: "Statusbar: this command works only on Telegram." };
     }
 
     const nextMode = this.parseModeArg(ctx.args);
     if (!nextMode) {
       const current = this.store.getConversation(target);
       return {
-        text: `Mode attuale: ${current.mode}\nUso: /sbmode minimal|normal|detailed`,
+        text: `Current mode: ${current.mode}\nUsage: /sbmode minimal|normal|detailed`,
         channelData: {
           telegram: {
             buttons: buildEnabledControls(current),
@@ -576,7 +576,7 @@ class StatusbarRuntime {
     }
 
     return {
-      text: `Mode impostata: ${updated.mode}`,
+      text: `Mode set: ${updated.mode}`,
       channelData: {
         telegram: {
           buttons: buildEnabledControls(updated),
