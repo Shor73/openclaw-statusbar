@@ -1,5 +1,5 @@
+import fs from "node:fs/promises";
 import path from "node:path";
-import { readJsonFileWithFallback, writeJsonFileAtomically } from "openclaw/plugin-sdk";
 import type {
   ConversationPrefs,
   PersistedStore,
@@ -8,7 +8,7 @@ import type {
   TelegramTarget,
 } from "./types.js";
 
-const STORE_FILE = path.join("plugins", "statusbar", "state.json");
+const STORE_FILE = path.join("plugins", "openclaw-statusbar", "state.json");
 
 function defaultConversation(enabledByDefault: boolean, mode: StatusMode): ConversationPrefs {
   return {
@@ -31,6 +31,24 @@ export function resolveStorePath(stateDir: string): string {
   return path.join(stateDir, STORE_FILE);
 }
 
+async function readStoreFile(filePath: string): Promise<PersistedStore | null> {
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as PersistedStore;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStoreFile(filePath: string, data: PersistedStore): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+}
+
 export class StatusbarStore {
   private readonly filePath: string;
   private readonly enabledByDefault: boolean;
@@ -45,16 +63,16 @@ export class StatusbarStore {
 
   async load(): Promise<void> {
     const fallback: PersistedStore = { version: 1, conversations: {} };
-    const loaded = await readJsonFileWithFallback<PersistedStore>(this.filePath, fallback);
-    if (!loaded.value || typeof loaded.value !== "object") {
+    const loaded = await readStoreFile(this.filePath);
+    if (!loaded || typeof loaded !== "object") {
       this.data = fallback;
       return;
     }
     this.data = {
       version: 1,
       conversations:
-        typeof loaded.value.conversations === "object" && loaded.value.conversations
-          ? loaded.value.conversations
+        typeof loaded.conversations === "object" && loaded.conversations
+          ? loaded.conversations
           : {},
     };
   }
@@ -104,6 +122,6 @@ export class StatusbarStore {
   }
 
   async persist(): Promise<void> {
-    await writeJsonFileAtomically(this.filePath, this.data);
+    await writeStoreFile(this.filePath, this.data);
   }
 }

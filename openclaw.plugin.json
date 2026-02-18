@@ -1,5 +1,5 @@
 {
-  "id": "statusbar",
+  "id": "openclaw-statusbar",
   "name": "Statusbar",
   "description": "Telegram statusline for OpenClaw agent runs",
   "configSchema": {

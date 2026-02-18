@@ -477,7 +477,7 @@ class StatusbarRuntime {
     }));
     await this.store.persist();
 
-    const sessionKey = `statusbar:manual:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
+    const sessionKey = `openclaw-statusbar:manual:${target.accountId}:${target.conversationId}:${target.threadId ?? "main"}`;
     const session = this.getOrCreateSession(sessionKey, target);
     session.phase = "idle";
     session.startedAtMs = Date.now();
@@ -587,12 +587,12 @@ class StatusbarRuntime {
 }
 
 export default {
-  id: "statusbar",
+  id: "openclaw-statusbar",
   name: "Statusbar",
   description: "Telegram statusline for OpenClaw agent runs",
   async register(api: OpenClawPluginApi) {
     const runtime = new StatusbarRuntime(api);
     await runtime.init();
-    api.logger.info("statusbar plugin initialized");
+    api.logger.info("openclaw-statusbar plugin initialized");
   },
 };

@@ -79,7 +79,7 @@ Add the plugin path to your OpenClaw config:
       paths: ["/home/angelo/openclaw-statusbar"]
     },
     entries: {
-      statusbar: {
+      "openclaw-statusbar": {
         enabled: true,
         config: {
           enabledByDefault: false,
@@ -95,7 +95,7 @@ Restart the OpenClaw gateway after config changes.
 
 ## Configuration
 
-Path: `plugins.entries.statusbar.config`
+Path: `plugins.entries.openclaw-statusbar.config`
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
