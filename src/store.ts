@@ -32,7 +32,52 @@ function defaultConversation(
   };
 }
 
-export function resolveConversationKey(target: Pick<TelegramTarget, "accountId" | "conversationId">): string {
+// fix #8: funzione pura di migrazione — nessuna mutazione in-place del record esistente
+function migrateConversationPrefs(
+  raw: ConversationPrefs,
+  defaults: {
+    enabledByDefault: boolean;
+    defaultMode: StatusMode;
+    defaultLayout: StatusLayout;
+    defaultProgressMode: ProgressMode;
+  },
+): ConversationPrefs {
+  return {
+    ...raw,
+    enabled:
+      typeof raw.enabled === "boolean" ? raw.enabled : defaults.enabledByDefault,
+    mode:
+      raw.mode === "minimal" || raw.mode === "normal" || raw.mode === "detailed"
+        ? raw.mode
+        : defaults.defaultMode,
+    layout: raw.layout === "tiny1" ? raw.layout : defaults.defaultLayout,
+    progressMode:
+      raw.progressMode === "strict" || raw.progressMode === "predictive"
+        ? raw.progressMode
+        : defaults.defaultProgressMode,
+    pinMode: typeof raw.pinMode === "boolean" ? raw.pinMode : false,
+    historyRuns:
+      typeof raw.historyRuns === "number" && Number.isFinite(raw.historyRuns)
+        ? raw.historyRuns
+        : 0,
+    avgDurationMs:
+      typeof raw.avgDurationMs === "number" && Number.isFinite(raw.avgDurationMs)
+        ? raw.avgDurationMs
+        : 0,
+    avgSteps:
+      typeof raw.avgSteps === "number" && Number.isFinite(raw.avgSteps)
+        ? raw.avgSteps
+        : 0,
+    statusMessagesByThread:
+      typeof raw.statusMessagesByThread === "object" && raw.statusMessagesByThread != null
+        ? raw.statusMessagesByThread
+        : {},
+  };
+}
+
+export function resolveConversationKey(
+  target: Pick<TelegramTarget, "accountId" | "conversationId">,
+): string {
   return `${target.accountId}::${target.conversationId}`;
 }
 
@@ -44,15 +89,20 @@ export function resolveStorePath(stateDir: string): string {
   return path.join(stateDir, STORE_FILE);
 }
 
-async function readStoreFile(filePath: string): Promise<PersistedStore | null> {
+// fix #10: distingue ENOENT (normale) da corruzione JSON (da loggare)
+async function readStoreFile(
+  filePath: string,
+  log?: (msg: string) => void,
+): Promise<PersistedStore | null> {
   try {
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as PersistedStore;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
+    if (!parsed || typeof parsed !== "object") return null;
     return parsed;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.(`statusbar: store read error (possible corruption): ${String(err)}`);
+    }
     return null;
   }
 }
@@ -68,7 +118,11 @@ export class StatusbarStore {
   private readonly defaultMode: StatusMode;
   private readonly defaultLayout: StatusLayout;
   private readonly defaultProgressMode: ProgressMode;
+  private readonly log: ((msg: string) => void) | undefined;
   private data: PersistedStore = { version: 1, conversations: {} };
+
+  // fix #3: write queue — serializza le scritture su disco per evitare corruzione
+  private persistQueue: Promise<void> = Promise.resolve();
 
   constructor(params: {
     stateDir: string;
@@ -76,19 +130,29 @@ export class StatusbarStore {
     defaultMode: StatusMode;
     defaultLayout: StatusLayout;
     defaultProgressMode: ProgressMode;
+    log?: (msg: string) => void;
   }) {
-    this.filePath = resolveStorePath(params.stateDir);
-    this.enabledByDefault = params.enabledByDefault;
-    this.defaultMode = params.defaultMode;
-    this.defaultLayout = params.defaultLayout;
-    this.defaultProgressMode = params.defaultProgressMode;
+    this.filePath             = resolveStorePath(params.stateDir);
+    this.enabledByDefault     = params.enabledByDefault;
+    this.defaultMode          = params.defaultMode;
+    this.defaultLayout        = params.defaultLayout;
+    this.defaultProgressMode  = params.defaultProgressMode;
+    this.log                  = params.log;
   }
 
   async load(): Promise<void> {
-    const fallback: PersistedStore = { version: 1, conversations: {} };
-    const loaded = await readStoreFile(this.filePath);
+    // fix #15: verifica la versione e predispone punto di migrazione per versioni future
+    const loaded = await readStoreFile(this.filePath, this.log);
     if (!loaded || typeof loaded !== "object") {
-      this.data = fallback;
+      this.data = { version: 1, conversations: {} };
+      return;
+    }
+    if (loaded.version !== 1) {
+      this.log?.(
+        `statusbar: unknown store version ${String(loaded.version)}, resetting to empty state`,
+      );
+      this.data = { version: 1, conversations: {} };
+      await this.persist();
       return;
     }
     this.data = {
@@ -100,41 +164,21 @@ export class StatusbarStore {
     };
   }
 
-  getConversation(target: Pick<TelegramTarget, "accountId" | "conversationId">): ConversationPrefs {
+  getConversation(
+    target: Pick<TelegramTarget, "accountId" | "conversationId">,
+  ): ConversationPrefs {
     const key = resolveConversationKey(target);
     const existing = this.data.conversations[key];
     if (existing) {
-      if (typeof existing.enabled !== "boolean") {
-        existing.enabled = this.enabledByDefault;
-      }
-      if (existing.mode !== "minimal" && existing.mode !== "normal" && existing.mode !== "detailed") {
-        existing.mode = this.defaultMode;
-      }
-      if (existing.layout !== "tiny1") {
-        existing.layout = this.defaultLayout;
-      }
-      if (existing.progressMode !== "strict" && existing.progressMode !== "predictive") {
-        existing.progressMode = this.defaultProgressMode;
-      }
-      if (typeof existing.pinMode !== "boolean") {
-        existing.pinMode = false;
-      }
-      if (typeof existing.historyRuns !== "number" || !Number.isFinite(existing.historyRuns)) {
-        existing.historyRuns = 0;
-      }
-      if (typeof existing.avgDurationMs !== "number" || !Number.isFinite(existing.avgDurationMs)) {
-        existing.avgDurationMs = 0;
-      }
-      if (typeof existing.avgSteps !== "number" || !Number.isFinite(existing.avgSteps)) {
-        existing.avgSteps = 0;
-      }
-      if (
-        typeof existing.statusMessagesByThread !== "object" ||
-        existing.statusMessagesByThread == null
-      ) {
-        existing.statusMessagesByThread = {};
-      }
-      return existing;
+      // fix #8: usa funzione pura invece di mutare il record in-place
+      const migrated = migrateConversationPrefs(existing, {
+        enabledByDefault:    this.enabledByDefault,
+        defaultMode:         this.defaultMode,
+        defaultLayout:       this.defaultLayout,
+        defaultProgressMode: this.defaultProgressMode,
+      });
+      this.data.conversations[key] = migrated;
+      return migrated;
     }
     const next = defaultConversation(
       this.enabledByDefault,
@@ -150,25 +194,21 @@ export class StatusbarStore {
     target: Pick<TelegramTarget, "accountId" | "conversationId">,
     updater: (current: ConversationPrefs) => ConversationPrefs,
   ): ConversationPrefs {
-    const key = resolveConversationKey(target);
+    const key     = resolveConversationKey(target);
     const current = this.getConversation(target);
-    const updated = {
-      ...updater(current),
-      updatedAt: Date.now(),
-    };
+    const updated = { ...updater(current), updatedAt: Date.now() };
     this.data.conversations[key] = updated;
     return updated;
   }
 
   getStatusMessage(target: TelegramTarget): StatusMessageRef | null {
     const prefs = this.getConversation(target);
-    const ref = prefs.statusMessagesByThread[resolveThreadKey(target.threadId)];
-    return ref ?? null;
+    return prefs.statusMessagesByThread[resolveThreadKey(target.threadId)] ?? null;
   }
 
   setStatusMessage(target: TelegramTarget, ref: StatusMessageRef | null): void {
     this.updateConversation(target, (current) => {
-      const next = { ...current, statusMessagesByThread: { ...current.statusMessagesByThread } };
+      const next      = { ...current, statusMessagesByThread: { ...current.statusMessagesByThread } };
       const threadKey = resolveThreadKey(target.threadId);
       if (ref == null) {
         delete next.statusMessagesByThread[threadKey];
@@ -179,40 +219,38 @@ export class StatusbarStore {
     });
   }
 
+  // fix #3: scritture serializzate tramite promise chain — previene corruzione da write concorrenti
   async persist(): Promise<void> {
-    await writeStoreFile(this.filePath, this.data);
+    this.persistQueue = this.persistQueue.then(() =>
+      writeStoreFile(this.filePath, this.data).catch((err) => {
+        this.log?.(`statusbar: persist failed: ${String(err)}`);
+      }),
+    );
+    return this.persistQueue;
   }
 
   findMostRecentTargetForAccount(accountId: string): TelegramTarget | null {
     const normalizedAccount = accountId.trim();
-    if (!normalizedAccount) {
-      return null;
-    }
+    if (!normalizedAccount) return null;
 
     let best: { conversationId: string; updatedAt: number } | null = null;
     for (const [key, prefs] of Object.entries(this.data.conversations)) {
-      if (!key.startsWith(`${normalizedAccount}::`)) {
-        continue;
-      }
+      if (!key.startsWith(`${normalizedAccount}::`)) continue;
       const conversationId = key.slice(`${normalizedAccount}::`.length);
-      if (!conversationId || !conversationId.startsWith("telegram:")) {
-        continue;
-      }
+      if (!conversationId || !conversationId.startsWith("telegram:")) continue;
       const updatedAt =
-        typeof prefs.updatedAt === "number" && Number.isFinite(prefs.updatedAt) ? prefs.updatedAt : 0;
+        typeof prefs.updatedAt === "number" && Number.isFinite(prefs.updatedAt)
+          ? prefs.updatedAt
+          : 0;
       if (!best || updatedAt > best.updatedAt) {
         best = { conversationId, updatedAt };
       }
     }
 
-    if (!best) {
-      return null;
-    }
+    if (!best) return null;
 
     const chatId = best.conversationId.slice("telegram:".length).trim();
-    if (!chatId) {
-      return null;
-    }
+    if (!chatId) return null;
 
     return {
       channelId: "telegram",

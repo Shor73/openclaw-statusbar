@@ -6,30 +6,32 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabledByDefault": { "type": "boolean", "default": false },
-      "defaultMode": { "type": "string", "enum": ["minimal", "normal", "detailed"], "default": "normal" },
-      "defaultLayout": { "type": "string", "enum": ["tiny1"], "default": "tiny1" },
-      "defaultProgressMode": { "type": "string", "enum": ["strict", "predictive"], "default": "predictive" },
-      "throttleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1200 },
-      "minThrottleMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 900 },
-      "liveTickMs": { "type": "integer", "minimum": 250, "maximum": 10000, "default": 1000 },
-      "maxRetries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 4 },
-      "autoHideSeconds": { "type": "integer", "minimum": 0, "maximum": 600, "default": 0 },
-      "showInlineControls": { "type": "boolean", "default": false },
-      "newMessagePerRun": { "type": "boolean", "default": true }
+      "enabledByDefault":    { "type": "boolean", "default": false },
+      "defaultMode":         { "type": "string",  "enum": ["minimal", "normal", "detailed"], "default": "normal" },
+      "defaultLayout":       { "type": "string",  "enum": ["tiny1"], "default": "tiny1" },
+      "defaultProgressMode": { "type": "string",  "enum": ["strict", "predictive"], "default": "predictive" },
+      "throttleMs":          { "type": "integer", "minimum": 250,  "maximum": 10000, "default": 4000 },
+      "minThrottleMs":       { "type": "integer", "minimum": 250,  "maximum": 10000, "default": 2500 },
+      "liveTickMs":          { "type": "integer", "minimum": 250,  "maximum": 10000, "default": 2500 },
+      "maxRetriesEdit":      { "type": "integer", "minimum": 0,    "maximum": 4,     "default": 0,   "description": "Retry per editMessageText — 0 raccomandato: gli edit sono efimeri" },
+      "maxRetriesSend":      { "type": "integer", "minimum": 0,    "maximum": 10,    "default": 4,   "description": "Retry per sendMessage e pinChatMessage — operazioni critiche" },
+      "autoHideSeconds":     { "type": "integer", "minimum": 0,    "maximum": 600,   "default": 0 },
+      "showInlineControls":  { "type": "boolean", "default": false },
+      "newMessagePerRun":    { "type": "boolean", "default": true }
     }
   },
   "uiHints": {
-    "enabledByDefault": { "label": "Enabled By Default" },
-    "defaultMode": { "label": "Default Mode" },
-    "defaultLayout": { "label": "Default Layout" },
+    "enabledByDefault":    { "label": "Enabled By Default" },
+    "defaultMode":         { "label": "Default Mode" },
+    "defaultLayout":       { "label": "Default Layout" },
     "defaultProgressMode": { "label": "Default Progress Mode" },
-    "throttleMs": { "label": "Throttle (ms)" },
-    "minThrottleMs": { "label": "Minimum Throttle (ms)" },
-    "liveTickMs": { "label": "Live Tick (ms)" },
-    "maxRetries": { "label": "Max Retries" },
-    "autoHideSeconds": { "label": "Auto-hide Seconds" },
-    "showInlineControls": { "label": "Show Inline Controls" },
-    "newMessagePerRun": { "label": "New Message Per Run" }
+    "throttleMs":          { "label": "Throttle (ms)" },
+    "minThrottleMs":       { "label": "Minimum Throttle (ms)" },
+    "liveTickMs":          { "label": "Live Tick (ms)" },
+    "maxRetriesEdit":      { "label": "Max Retries — Edit" },
+    "maxRetriesSend":      { "label": "Max Retries — Send/Pin" },
+    "autoHideSeconds":     { "label": "Auto-hide Seconds" },
+    "showInlineControls":  { "label": "Show Inline Controls" },
+    "newMessagePerRun":    { "label": "New Message Per Run" }
   }
 }

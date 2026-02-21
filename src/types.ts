@@ -12,7 +12,9 @@ export type StatusbarPluginConfig = {
   throttleMs: number;
   minThrottleMs: number;
   liveTickMs: number;
-  maxRetries: number;
+  // fix #20: split maxRetries — edits are ephemeral (0 retries), send/pin are critical (N retries)
+  maxRetriesEdit: number;
+  maxRetriesSend: number;
   autoHideSeconds: number;
   showInlineControls: boolean;
   newMessagePerRun: boolean;
