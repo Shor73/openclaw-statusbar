@@ -2,6 +2,7 @@
 
 Live Telegram statusline plugin for OpenClaw.
 
+[![Version](https://img.shields.io/badge/Version-0.2.0-blue)](./CHANGELOG.md)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-Plugin-111111)](https://github.com/openclaw/openclaw)
 [![Telegram](https://img.shields.io/badge/Channel-Telegram-26A5E4)](https://telegram.org/)
 [![TypeScript](https://img.shields.io/badge/Built%20with-TypeScript-3178C6)](https://www.typescriptlang.org/)
@@ -39,9 +40,14 @@ During tool execution:
   - pinned: same message is updated across runs
   - unpinned: new status message per run
 - Robust Telegram delivery:
-  - throttling + dedup
-  - retry/backoff on `429`
-  - recovery on deleted status message (`message to edit not found`)
+  - Global circuit breaker — blocks all requests to `(account, chat)` after a 429
+  - Adaptive phase throttle — TOOL=2000ms, RUNNING=throttleMs, QUEUED=throttleMs×2
+  - Fetch timeouts — 10s edit, 15s send/pin (prevents hangs on slow networks)
+  - Urgent flush — bypass throttle for phase changes (immediate UI feedback)
+  - Smart retry/backoff — 0 retries for edits (ephemeral), N retries for send/pin (critical)
+  - Recovery on deleted status message (`message to edit not found`)
+- Hot-reload ready — proper teardown via `destroy()` method
+- Memory-safe — automatic cleanup of stale sessions after 2h inactivity
 
 ## Commands
 
@@ -98,10 +104,11 @@ Path: `plugins.entries.openclaw-statusbar.config`
 | `defaultMode` | `minimal \| normal \| detailed` | `normal` | Compatibility mode field |
 | `defaultLayout` | `tiny1` | `tiny1` | Default render layout |
 | `defaultProgressMode` | `strict \| predictive` | `predictive` | Progress strategy |
-| `throttleMs` | `number` | `1200` | Base edit throttle |
-| `minThrottleMs` | `number` | `900` | Minimum throttle floor |
-| `liveTickMs` | `number` | `1000` | Live ticker interval |
-| `maxRetries` | `number` | `4` | Max retries for transient Telegram/API failures |
+| `throttleMs` | `number` | `4000` | Base edit throttle (raised to avoid 429 rate limits) |
+| `minThrottleMs` | `number` | `2500` | Minimum throttle floor |
+| `liveTickMs` | `number` | `2500` | Live ticker interval |
+| `maxRetriesEdit` | `number` | `0` | Retries for `editMessageText` (ephemeral, 0 recommended) |
+| `maxRetriesSend` | `number` | `4` | Retries for `sendMessage`/`pinChatMessage` (critical) |
 | `autoHideSeconds` | `number` | `0` | Auto-hide after completion (`0` disables) |
 | `showInlineControls` | `boolean` | `false` | Reserved (inline controls disabled) |
 | `newMessagePerRun` | `boolean` | `true` | Create a new status message at each run start (unless pinned) |
@@ -239,6 +246,8 @@ Tip: keep template rendering pure (no side effects), and keep step/ETA calculati
 - If the bot cannot pin messages (missing admin permission in group), statusline still works, but pin command will only switch internal mode.
 - If status message is deleted manually, plugin recreates it automatically.
 - If webhook/polling conflicts exist in Telegram, fix webhook on the bot token before testing.
+- Sessions are automatically cleaned up after 2 hours of inactivity to prevent memory leaks.
+- Plugin supports hot-reload via proper `destroy()` teardown.
 
 ## Development
 
@@ -246,6 +255,10 @@ Tip: keep template rendering pure (no side effects), and keep step/ETA calculati
 npm install
 npm run typecheck
 ```
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for version history and release notes.
 
 ## License
 
