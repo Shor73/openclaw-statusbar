@@ -54,30 +54,41 @@ function formatTokens(input: number | null, output: number | null): string | nul
   return `${inStr}↑${outStr}↓`;
 }
 
-const DEFAULT_MODEL_LABEL = "opus";
-const THINKING_ICONS: Record<string, string> = {
-  high: "🧠",
-  medium: "💭",
-  low: "💬",
-  off: "",
-};
+const DEFAULT_MODEL_LABEL = "opus-4.6";
 const DEFAULT_THINKING = "high";
+
+// Superscript Unicode map
+const SUPERSCRIPT: Record<string, string> = {
+  "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ",
+  "h": "ʰ", "i": "ⁱ", "j": "ʲ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ",
+  "o": "ᵒ", "p": "ᵖ", "q": "q", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ",
+  "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
+  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵",
+  "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+  ".": "·", "-": "⁻", "/": "ᐟ",
+};
+
+function toSuperscript(text: string): string {
+  return [...text.toLowerCase()].map(c => SUPERSCRIPT[c] ?? c).join("");
+}
 
 function shortModel(model: string | null, fallback = false): string | null {
   if (!model) return fallback ? DEFAULT_MODEL_LABEL : null;
   const m = model.toLowerCase();
-  if (m.includes("opus"))   return "opus";
-  if (m.includes("sonnet")) return "sonnet";
-  if (m.includes("haiku"))  return "haiku";
-  if (m.includes("gpt-5"))  return "gpt5";
-  if (m.includes("gpt-4"))  return "gpt4";
-  if (m.includes("minimax")) return "minimax";
-  if (m.includes("glm"))    return "glm";
-  if (m.includes("gemini")) return "gemini";
+  if (m.includes("opus-4-6") || m.includes("opus-4.6"))     return "opus-4.6";
+  if (m.includes("opus"))     return "opus";
+  if (m.includes("sonnet-4-6") || m.includes("sonnet-4.6")) return "sonnet-4.6";
+  if (m.includes("sonnet"))   return "sonnet";
+  if (m.includes("haiku-4-5") || m.includes("haiku-4.5"))   return "haiku-4.5";
+  if (m.includes("haiku"))    return "haiku";
+  if (m.includes("gpt-5"))    return "gpt-5";
+  if (m.includes("gpt-4"))    return "gpt-4";
+  if (m.includes("minimax"))  return "minimax";
+  if (m.includes("glm"))      return "glm";
+  if (m.includes("gemini"))   return "gemini";
   if (m.includes("deepseek")) return "deepseek";
-  // fallback: last segment
   const parts = model.split(/[/\-]/);
-  return parts[parts.length - 1]?.slice(0, 8) ?? model.slice(0, 8);
+  return parts[parts.length - 1]?.slice(0, 10) ?? model.slice(0, 10);
 }
 
 function getElapsedMs(session: SessionRuntime): number {
@@ -200,10 +211,10 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const elapsed = formatClockMs(getElapsedMs(session));
   const isActive = session.phase === "running" || session.phase === "tool";
   const model = shortModel(session.model, isActive || session.phase === "done" || session.phase === "error");
-  const thinkIcon = THINKING_ICONS[DEFAULT_THINKING] ?? "";
-  const modelTag = model ? ` │ ⚙️${model}${thinkIcon ? thinkIcon : ""}` : "";
+  const thinkLabel = DEFAULT_THINKING.charAt(0).toUpperCase() + DEFAULT_THINKING.slice(1);
+  const modelTag = model ? ` │ 🧠${model}|${thinkLabel}` : "";
   const tokens = formatTokens(session.usageInput, session.usageOutput);
-  const tokTag = tokens ? ` │ 🧠${tokens}` : "";
+  const tokTag = tokens ? ` │ ${tokens}` : "";
 
   if (session.phase === "idle") return `${icon} idle`;
   if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)} │ attendo…`;
