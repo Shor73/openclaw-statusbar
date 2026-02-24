@@ -270,6 +270,18 @@ class StatusbarRuntime {
 
     const fromKey = resolveTelegramTargetFromSessionKey(key);
     if (fromKey) {
+      // fix #23: align accountId with already-tracked target for the same chatId
+      // onMessageReceived uses the real Telegram accountId, while onBeforeAgentStart
+      // parses the sessionKey and defaults to "default". This caused two separate
+      // sessions for the same chat — one with the Telegram messageId (stuck on queued)
+      // and one without (transitioning correctly but invisible to the user).
+      for (const [, entry] of this.sessionTargets) {
+        if (entry.target.chatId === fromKey.chatId && entry.target.threadId === fromKey.threadId) {
+          fromKey.accountId = entry.target.accountId;
+          fromKey.conversationId = entry.target.conversationId;
+          break;
+        }
+      }
       this.trackSessionTarget(key, fromKey);
       return fromKey;
     }
