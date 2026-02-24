@@ -356,6 +356,12 @@ class StatusbarRuntime {
     if (urgent) {
       // Bypass throttle: l'utente deve vedere il cambio di stato immediatamente
       session.nextAllowedAtMs = 0;
+      // fix #22: cancella il timer pendente per permettere il reschedule immediato
+      // Senza questo, markDirty(urgent) viene ignorato se scheduleFlush trova renderTimer != null
+      if (session.renderTimer) {
+        clearTimeout(session.renderTimer);
+        session.renderTimer = null;
+      }
     }
     this.scheduleFlush(session.sessionKey);
   }
