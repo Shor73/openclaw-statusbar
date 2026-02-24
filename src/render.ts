@@ -1,35 +1,29 @@
 import type { ConversationPrefs, SessionRuntime } from "./types.js";
 
 /**
- * Statusbar render module — v0.3.0
+ * Statusbar render module — v0.4.0 (geek edition)
  *
- * Design principles:
- * - Show only real, verifiable information (no invented step counts)
- * - Time-based progress is more reliable than step-based
- * - Clean, compact output optimized for Telegram inline display
- * - Phase-appropriate rendering: active runs show detail, done shows summary
+ * Layouts:
+ * - minimal:  icon + focus + time
+ * - normal:   icon + focus + progress bar + % + time
+ * - detailed: icon + focus + model + progress bar + % + time + ETA + tokens
  */
 
 // --- Progress estimation constants ---
-
-/** Weight of step-based ratio in blended progress (0–1) */
 const PROGRESS_STEP_WEIGHT = 0.4;
-/** Weight of time-based ratio in blended progress (0–1) */
 const PROGRESS_TIME_WEIGHT = 0.6;
-/** Minimum progress ratio to avoid showing 0% */
 const PROGRESS_MIN_RATIO = 0.01;
-/** Maximum progress ratio during active run (never show 100% until done) */
 const PROGRESS_MAX_RATIO = 0.99;
-/** Minimum displayable percent */
 const PROGRESS_MIN_PERCENT = 1;
-/** Maximum displayable percent during active run */
 const PROGRESS_MAX_PERCENT = 99;
-/** Minimum ratio before attempting ETA calculation (avoids wild estimates at start) */
 const ETA_MIN_RATIO_THRESHOLD = 0.08;
-/** Fallback assumed total steps when no history exists */
 const FALLBACK_STEPS_TOTAL = 4;
-/** Minimum elapsed time (ms) before showing ETA (avoid noisy early estimates) */
 const ETA_MIN_ELAPSED_MS = 3000;
+
+// --- Progress bar config ---
+const BAR_WIDTH = 10;
+const BAR_FILLED = "█";
+const BAR_EMPTY = "░";
 
 // --- Formatters ---
 
@@ -44,9 +38,59 @@ function formatClockMs(valueMs: number): string {
   return `${mm}:${ss}`;
 }
 
+function formatCompactSeconds(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m${rem}s` : `${m}m`;
+}
+
+function formatTokens(input: number | null, output: number | null): string | null {
+  if ((input == null || input === 0) && (output == null || output === 0)) return null;
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+  const inStr = input ? fmt(input) : "0";
+  const outStr = output ? fmt(output) : "0";
+  return `${inStr}↑${outStr}↓`;
+}
+
+const DEFAULT_MODEL_LABEL = "opus";
+const THINKING_ICONS: Record<string, string> = {
+  high: "🧠",
+  medium: "💭",
+  low: "💬",
+  off: "",
+};
+const DEFAULT_THINKING = "high";
+
+function shortModel(model: string | null, fallback = false): string | null {
+  if (!model) return fallback ? DEFAULT_MODEL_LABEL : null;
+  const m = model.toLowerCase();
+  if (m.includes("opus"))   return "opus";
+  if (m.includes("sonnet")) return "sonnet";
+  if (m.includes("haiku"))  return "haiku";
+  if (m.includes("gpt-5"))  return "gpt5";
+  if (m.includes("gpt-4"))  return "gpt4";
+  if (m.includes("minimax")) return "minimax";
+  if (m.includes("glm"))    return "glm";
+  if (m.includes("gemini")) return "gemini";
+  if (m.includes("deepseek")) return "deepseek";
+  // fallback: last segment
+  const parts = model.split(/[/\-]/);
+  return parts[parts.length - 1]?.slice(0, 8) ?? model.slice(0, 8);
+}
+
 function getElapsedMs(session: SessionRuntime): number {
   const endMs = session.endedAtMs ?? Date.now();
   return Math.max(0, endMs - session.startedAtMs);
+}
+
+// --- Progress bar ---
+
+function renderProgressBar(percent: number | null): string {
+  if (percent == null) return BAR_EMPTY.repeat(BAR_WIDTH);
+  const filled = Math.round((percent / 100) * BAR_WIDTH);
+  return BAR_FILLED.repeat(filled) + BAR_EMPTY.repeat(BAR_WIDTH - filled);
 }
 
 // --- Phase display ---
@@ -65,135 +109,126 @@ function resolveStatusIcon(session: SessionRuntime): string {
 function resolveFocusLabel(session: SessionRuntime): string {
   if (session.phase === "tool" && session.toolName) return session.toolName;
   if (session.phase === "queued")  return "in coda";
-  if (session.phase === "running") return "elaboro";
-  if (session.phase === "done")    return "completato";
+  if (session.phase === "running") return "thinking";
+  if (session.phase === "done")    return "done";
   if (session.phase === "error")   return "errore";
   return "idle";
 }
 
 // --- Progress estimation ---
 
-/**
- * Computes progress based on a time+step blend.
- * Step counts are used internally for ratio estimation but NOT displayed to the user.
- * The displayed progress is percentage and ETA only.
- */
 function resolveProgress(
   session: SessionRuntime,
   prefs: ConversationPrefs,
-): {
-  percent: number | null;
-  etaMs: number | null;
-} {
+): { percent: number | null; etaMs: number | null } {
   const isFinal = session.phase === "done" || session.phase === "error";
   const elapsedMs = getElapsedMs(session);
 
-  // Final states: always 100%, ETA 0
-  if (isFinal) {
-    return { percent: 100, etaMs: 0 };
-  }
+  if (isFinal) return { percent: 100, etaMs: 0 };
+  if (prefs.progressMode === "strict") return { percent: null, etaMs: null };
 
-  // Strict mode: no estimation during run, only show done/not-done
-  if (prefs.progressMode === "strict") {
-    return { percent: null, etaMs: null };
-  }
-
-  // --- Predictive mode ---
   const rawStepsDone = Math.max(0, session.currentRunSteps);
-
-  // Step-based ratio (internal only, never displayed as X/Y)
-  const historyTotal =
-    prefs.historyRuns > 0 ? Math.round(Math.max(1, prefs.avgSteps)) : 0;
-  const estimatedTotal = Math.max(
-    historyTotal || FALLBACK_STEPS_TOTAL,
-    rawStepsDone + 1,
-  );
+  const historyTotal = prefs.historyRuns > 0 ? Math.round(Math.max(1, prefs.avgSteps)) : 0;
+  const estimatedTotal = Math.max(historyTotal || FALLBACK_STEPS_TOTAL, rawStepsDone + 1);
   const stepRatio = estimatedTotal > 0 ? rawStepsDone / estimatedTotal : 0;
 
   let percentRatio = Math.max(PROGRESS_MIN_RATIO, stepRatio);
   let etaMs: number | null = null;
 
   if (prefs.avgDurationMs > 0) {
-    // Blend step-based and time-based progress
     const timeRatio = Math.min(PROGRESS_MAX_RATIO, elapsedMs / prefs.avgDurationMs);
     percentRatio = Math.max(
       stepRatio,
-      Math.min(
-        PROGRESS_MAX_RATIO,
-        stepRatio * PROGRESS_STEP_WEIGHT + timeRatio * PROGRESS_TIME_WEIGHT,
-      ),
+      Math.min(PROGRESS_MAX_RATIO, stepRatio * PROGRESS_STEP_WEIGHT + timeRatio * PROGRESS_TIME_WEIGHT),
     );
-    // ETA from historical average duration
     if (elapsedMs >= ETA_MIN_ELAPSED_MS) {
       etaMs = Math.max(0, Math.round(prefs.avgDurationMs - elapsedMs));
     }
   } else if (percentRatio > ETA_MIN_RATIO_THRESHOLD && elapsedMs >= ETA_MIN_ELAPSED_MS) {
-    // Fallback ETA from current pace
     etaMs = Math.max(0, Math.round((elapsedMs * (1 - percentRatio)) / percentRatio));
   }
 
   return {
-    percent: Math.max(
-      PROGRESS_MIN_PERCENT,
-      Math.min(PROGRESS_MAX_PERCENT, Math.round(percentRatio * 100)),
-    ),
+    percent: Math.max(PROGRESS_MIN_PERCENT, Math.min(PROGRESS_MAX_PERCENT, Math.round(percentRatio * 100))),
     etaMs,
   };
 }
 
-// --- Render layouts ---
-
-/**
- * Compact single-line statusbar.
- *
- * Active:  ⚡ elaboro #5 | 00:15 | 35% | ETA 00:28
- * Tool:    🔧 exec #5 | 00:23 | 52% | ETA 00:21
- * Done:    ✅ completato #5 | 00:31
- * Error:   ❌ errore #5 | 00:31
- * Queued:  ⏳ in coda #5
- * Idle:    💤 idle
- */
-function renderTiny1(session: SessionRuntime, prefs: ConversationPrefs): string {
+// --- Render: MINIMAL ---
+// 🔧 exec │ 00:15
+// ✅ done │ 00:31
+function renderMinimal(session: SessionRuntime, _prefs: ConversationPrefs): string {
   const icon = resolveStatusIcon(session);
   const focus = resolveFocusLabel(session);
-  const taskLabel = session.runNumber > 0 ? `#${session.runNumber}` : "";
-  const pinMarker = prefs.pinMode ? " 📌" : "";
+  if (session.phase === "idle") return `${icon} idle`;
+  if (session.phase === "queued") return `${icon} ${focus}`;
+  return `${icon} ${focus} │ ${formatClockMs(getElapsedMs(session))}`;
+}
+
+// --- Render: NORMAL ---
+// 🔧 exec │ █████░░░░░ 52% │ ⏱00:15
+// ✅ done │ ██████████ │ ⏱00:31
+// ⏳ in coda │ ░░░░░░░░░░
+function renderNormal(session: SessionRuntime, prefs: ConversationPrefs): string {
+  const icon = resolveStatusIcon(session);
+  const focus = resolveFocusLabel(session);
   const elapsed = formatClockMs(getElapsedMs(session));
 
-  // Idle: minimal
-  if (session.phase === "idle") {
-    return `${icon} idle`;
-  }
+  if (session.phase === "idle") return `${icon} idle`;
+  if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
 
-  // Queued: just show queued status
-  if (session.phase === "queued") {
-    return `${icon} ${focus} ${taskLabel}${pinMarker}`;
-  }
-
-  // Done/Error: clean summary with total time only
-  if (session.phase === "done" || session.phase === "error") {
-    return `${icon} ${focus} ${taskLabel}${pinMarker} | ${elapsed}`;
-  }
-
-  // Active (running/tool): show progress details
   const progress = resolveProgress(session, prefs);
-  const parts: string[] = [
-    `${icon} ${focus} ${taskLabel}${pinMarker}`,
-    elapsed,
-  ];
+  const bar = renderProgressBar(progress.percent);
 
-  if (progress.percent != null) {
-    parts.push(`${progress.percent}%`);
-  }
-  if (progress.etaMs != null) {
-    parts.push(`ETA ${formatClockMs(progress.etaMs)}`);
+  if (session.phase === "done" || session.phase === "error") {
+    return `${icon} ${focus} │ ${bar} │ ⏱${elapsed}`;
   }
 
-  return parts.join(" | ");
+  const pct = progress.percent != null ? ` ${progress.percent}%` : "";
+  const parts = [`${icon} ${focus} │ ${bar}${pct} │ ⏱${elapsed}`];
+  if (progress.etaMs != null) parts[0] += ` →${formatCompactSeconds(progress.etaMs)}`;
+  return parts[0];
+}
+
+// --- Render: DETAILED ---
+// 🔧 exec │ ⚙️opus │ █████░░░░░ 52% │ ⏱00:15 →13s │ 🧠1.2k↑340↓
+// ✅ done │ ⚙️opus │ ██████████ │ ⏱00:31 │ 🧠1.5k↑890↓
+// ⏳ in coda │ ░░░░░░░░░░ │ attendo...
+function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): string {
+  const icon = resolveStatusIcon(session);
+  const focus = resolveFocusLabel(session);
+  const elapsed = formatClockMs(getElapsedMs(session));
+  const isActive = session.phase === "running" || session.phase === "tool";
+  const model = shortModel(session.model, isActive || session.phase === "done" || session.phase === "error");
+  const thinkIcon = THINKING_ICONS[DEFAULT_THINKING] ?? "";
+  const modelTag = model ? ` │ ⚙️${model}${thinkIcon ? thinkIcon : ""}` : "";
+  const tokens = formatTokens(session.usageInput, session.usageOutput);
+  const tokTag = tokens ? ` │ 🧠${tokens}` : "";
+
+  if (session.phase === "idle") return `${icon} idle`;
+  if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)} │ attendo…`;
+
+  const progress = resolveProgress(session, prefs);
+  const bar = renderProgressBar(progress.percent);
+
+  if (session.phase === "done" || session.phase === "error") {
+    return `${icon} ${focus}${modelTag} │ ${bar} │ ⏱${elapsed}${tokTag}`;
+  }
+
+  const pct = progress.percent != null ? ` ${progress.percent}%` : "";
+  let line = `${icon} ${focus}${modelTag} │ ${bar}${pct} │ ⏱${elapsed}`;
+  if (progress.etaMs != null) line += ` →${formatCompactSeconds(progress.etaMs)}`;
+  line += tokTag;
+  return line;
 }
 
 // --- Public API ---
 
 export function renderStatusText(session: SessionRuntime, prefs: ConversationPrefs): string {
-  return renderTiny1(session, prefs);
+  switch (prefs.mode) {
+    case "minimal":  return renderMinimal(session, prefs);
+    case "normal":   return renderNormal(session, prefs);
+    case "detailed": return renderDetailed(session, prefs);
+    default:         return renderNormal(session, prefs);
+  }
 }

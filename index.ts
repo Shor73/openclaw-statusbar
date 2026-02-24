@@ -270,11 +270,7 @@ class StatusbarRuntime {
 
     const fromKey = resolveTelegramTargetFromSessionKey(key);
     if (fromKey) {
-      // fix #23: align accountId with already-tracked target for the same chatId
-      // onMessageReceived uses the real Telegram accountId, while onBeforeAgentStart
-      // parses the sessionKey and defaults to "default". This caused two separate
-      // sessions for the same chat — one with the Telegram messageId (stuck on queued)
-      // and one without (transitioning correctly but invisible to the user).
+      // fix #23: allinea accountId con target già tracciato per lo stesso chatId
       for (const [, entry] of this.sessionTargets) {
         if (entry.target.chatId === fromKey.chatId && entry.target.threadId === fromKey.threadId) {
           fromKey.accountId = entry.target.accountId;
@@ -654,17 +650,24 @@ class StatusbarRuntime {
     if (!prefs.enabled) return;
 
     const session = this.getOrCreateSession(target);
+    const isFirstModel = !session.model && event.model;
     session.provider    = event.provider;
     session.model       = event.model;
-    session.usageInput  = typeof event.usage?.input  === "number" ? Math.trunc(event.usage.input)  : 0;
-    session.usageOutput = typeof event.usage?.output === "number" ? Math.trunc(event.usage.output) : 0;
+    // Accumula token invece di sovrascrivere
+    const newInput  = typeof event.usage?.input  === "number" ? Math.trunc(event.usage.input)  : 0;
+    const newOutput = typeof event.usage?.output === "number" ? Math.trunc(event.usage.output) : 0;
+    session.usageInput  = (session.usageInput  ?? 0) + newInput;
+    session.usageOutput = (session.usageOutput ?? 0) + newOutput;
 
-    if (prefs.mode === "detailed") {
+    if (isFirstModel) {
+      // Primo LLM output: urgente, l'utente deve vedere il modello subito
+      this.markDirty(session, true);
+    } else if (prefs.mode === "detailed") {
       const nowMs          = Date.now();
       const usageIntervalMs = Math.max(this.config.minThrottleMs, this.config.liveTickMs);
       if (nowMs - session.lastUsageRenderAtMs >= usageIntervalMs) {
         session.lastUsageRenderAtMs = nowMs;
-        this.markDirty(session); // llm_output: non urgente
+        this.markDirty(session); // llm_output successivi: non urgente
       }
     }
   }
