@@ -1,39 +1,40 @@
 # Changelog
 
-## [0.4.0] — 2026-02-25
+## [1.0.0] — 2026-02-25
 
-### ✨ New: Geek Edition render
+**First stable release.** 🎉
 
-Complete rewrite of the render layer. Three distinct display modes:
+### ✨ Per-tool icons
 
-- **minimal** — `⚡ thinking │ 00:15` — phase + elapsed only
-- **normal** — `🔧exec │ ████░░░ 52% │ 00:15→13s` — adds progress bar + ETA
-- **detailed** *(default)* — full info including model, thinking level, tokens
+Every tool now has a unique emoji — you always know what the agent is doing at a glance:
 
-Switch anytime with `/sbmode minimal|normal|detailed`.
+🖥 exec · 📖 Read · ✏️ Write · 🔏 Edit · ⏱️ process · 🔍 web_search · 🌐 web_fetch/browser · 💬 message · 🔌 gateway · 🎨 canvas · 🔗 nodes · ⏰ cron · 🧬 sessions_spawn · 📤 sessions_send · 🤖 subagents · 📋 session_status · 🖼 image · 🧠 memory_search/memory_get · 🔊 tts
 
-### ✨ New: Mobile-optimized layout
+Phase icons: 🔜 queued · 💭 thinking · 🟢 done · ❌ error
 
-- Progress bar width reduced to 7 chars (fits Telegram pin bar on mobile)
-- No space between icon and tool name during active phases
-- Model label with version: `opus-4.6`, `sonnet-4.6`, `haiku-4.5`
-- Thinking level inline: `opus-4.6|High`
-- Token display without icon: `1.5k↑340↓`
-- 🟢 as done icon, `s` suffix on final time
+### ✨ Adaptive ETA (v3 — predicted end time)
 
-### ✨ New: Predictive progress with historical data
+- Calculates predicted end timestamp from step rate
+- Smooth countdown between tool calls
+- Auto-bumps forward when estimate is exceeded (ETA never shows 0 during active runs)
+- Gets more accurate over time with historical data
 
-- Tracks `avgDurationMs`, `avgSteps`, `historyRuns` across sessions
-- ETA estimated from run history — gets tighter after 10+ runs
-- State persisted to `~/.openclaw/plugins/openclaw-statusbar/state.json`
+### ✨ Three display modes
 
-### 🔴 Fix #22 — renderTimer not cancelled on urgent flush
+- **minimal** — `💭 thinking │ 00:15`
+- **normal** — `🖥 exec │ ████░░░ 52% │ 00:15→13s`
+- **detailed** *(default)* — full info with model, thinking level, tokens
 
-When an urgent `markDirty` fired while a `renderTimer` was pending, the timer would still fire and overwrite the urgent render with stale data. Fixed by cancelling pending `renderTimer` before scheduling urgent flushes.
+### ✨ Mobile-optimized layout
 
-### 🔴 Fix #23 — accountId mismatch between hooks
+- Progress bar 7 chars (fits Telegram pin bar)
+- Compact token display: `1.5k↑340↓`
+- Model + thinking inline: `opus-4.6|High`
 
-`onMessageReceived` resolved `accountId="main"` while `onBeforeAgentStart` resolved `accountId="default"`, causing the plugin to create two separate sessions for the same chat. Fixed by reusing the `accountId` of any already-tracked session for the same `chatId/threadId` in `resolveTargetForSession`.
+### 🔴 Fixes since 0.2.0
+
+- **#22** — renderTimer not cancelled on urgent flush
+- **#23** — accountId mismatch between hooks (queued vs running)
 
 ---
 

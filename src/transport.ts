@@ -320,7 +320,7 @@ export class TelegramTransport {
     text: string;
     buttons?: TelegramInlineButtons;
   }): Promise<StatusMessageRef> {
-    this.api.logger.info(`[SB-EDIT] chat=${params.target.chatId} t=${Date.now()}`);
+    this.api.logger.debug(`[SB-EDIT] chat=${params.target.chatId} t=${Date.now()}`);
     // Prova prima il path SDK (OpenClaw messageActions)
     try {
       const messageActions = this.api.runtime.channel.telegram.messageActions;
