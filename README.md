@@ -8,7 +8,7 @@
 > A live status bar for your AI agent, pinned right inside Telegram.  
 > See what Claude is doing, how long it's been thinking, and when it'll finish — in real time.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blueviolet?style=flat-square)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-blueviolet?style=flat-square)](./CHANGELOG.md)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-plugin-111111?style=flat-square)](https://github.com/openclaw/openclaw)
 [![Telegram](https://img.shields.io/badge/Telegram-live%20pin-26A5E4?style=flat-square&logo=telegram)](https://telegram.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -131,6 +131,7 @@ Then in Telegram, send `/sbon` to activate in the current chat.
 | `/sbreset` | Recreate the status message |
 | `/sbstatus` | Debug info — session state, config values |
 | `/sbsettings` | Show current settings + command reference |
+| `/sbbuttons` | Toggle inline buttons on/off |
 
 ---
 
@@ -175,6 +176,43 @@ Lower the throttle for fluid seconds display. This increases Telegram API calls 
 ```
 
 The built-in circuit breaker protects against 429 bans even with aggressive settings.
+
+---
+
+## Inline buttons
+
+Interactive buttons appear below the status bar message — no need to type commands.
+
+### During execution
+```
+🖥 exec │ ████░░░ 52% │ 00:15→13s
+[ 📊 normal ] [ 📌 Pin ] [ ⏹ Off ]
+```
+
+### On completion
+```
+🟢 done │ opus-4.6|High │ 00:31s │ 1.5k↑340↓
+[ 📊 normal ] [ 🔄 Reset ] [ ⏹ Off ]
+```
+
+### Available buttons
+
+| Button | When | Action |
+|---|---|---|
+| `📊 <mode>` | Always | Cycle display mode (minimal → normal → detailed → minimal) |
+| `📌 Pin` / `📌 Unpin` | Active | Toggle pin mode |
+| `⏹ Off` | Always | Disable statusbar |
+| `🔄 Reset` | Done/Error | Recreate the status message |
+
+### Toggle buttons
+
+Don't want buttons? Turn them off:
+
+```
+/sbbuttons     ← toggles on/off
+```
+
+> **Note:** When using pin mode, buttons are attached to the message but not visible in the Telegram pin bar preview. Tap the pin bar to jump to the message and see the buttons.
 
 ---
 

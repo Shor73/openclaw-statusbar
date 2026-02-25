@@ -6,7 +6,7 @@ import {
   resolveTelegramTargetFromMessageReceived,
   resolveTelegramTargetFromSessionKey,
 } from "./src/resolver.js";
-import { renderStatusText } from "./src/render.js";
+import { renderStatusText, renderStatusButtons } from "./src/render.js";
 import { StatusbarStore } from "./src/store.js";
 import { TelegramApiError, TelegramTransport } from "./src/transport.js";
 import type {
@@ -113,6 +113,12 @@ class StatusbarRuntime {
       description: "Show statusbar settings and useful commands",
       acceptsArgs: false,
       handler: async (ctx) => this.handleSettingsCommand(ctx),
+    });
+    this.api.registerCommand({
+      name: "sbbuttons",
+      description: "Toggle inline buttons on/off",
+      acceptsArgs: false,
+      handler: async (ctx) => this.handleButtonsCommand(ctx),
     });
 
     this.api.on("message_received", async (event, ctx) => {
@@ -431,7 +437,7 @@ class StatusbarRuntime {
     session.isFlushing = true;
     try {
       const text        = renderStatusText(session, prefs);
-      const controls    = undefined;
+      const controls    = renderStatusButtons(session, prefs);
       const controlsKey = JSON.stringify(controls ?? null);
 
       if (
@@ -977,8 +983,35 @@ class StatusbarRuntime {
         "/sbmode minimal|normal|detailed",
         "/sbpin  /sbunpin",
         "/sbstatus  /sbreset",
+        "/sbbuttons",
       ].join("\n"),
     };
+  }
+
+  private async handleButtonsCommand(ctx: {
+    channel: string; senderId?: string; accountId?: string;
+    to?: string; from?: string; messageThreadId?: number;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    if (!target) {
+      return { text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sbbuttons again." };
+    }
+
+    const prefs = this.store.getConversation(target);
+    const next = !prefs.buttonsEnabled;
+    this.store.updateConversation(target, (current) => ({ ...current, buttonsEnabled: next }));
+    await this.store.persist();
+
+    // Flush per aggiornare subito (rimuovere/aggiungere bottoni)
+    for (const session of this.sessions.values()) {
+      if (session.target.chatId === target.chatId && session.target.threadId === target.threadId) {
+        session.desiredRevision++;
+        session.lastRenderedControlsKey = "";
+        void this.flushSession(session.sessionKey);
+      }
+    }
+
+    return { text: `Inline buttons: ${next ? "ON ✅" : "OFF ❌"}` };
   }
 }
 

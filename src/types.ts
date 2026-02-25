@@ -40,6 +40,7 @@ export type ConversationPrefs = {
   layout: StatusLayout;
   progressMode: ProgressMode;
   pinMode: boolean;
+  buttonsEnabled: boolean;
   historyRuns: number;
   avgDurationMs: number;
   avgSteps: number;

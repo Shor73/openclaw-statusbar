@@ -276,6 +276,45 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
 
 }
 
+// --- Inline Buttons ---
+
+type InlineButton = { text: string; callback_data: string };
+
+const MODE_CYCLE: Record<string, string> = {
+  minimal: "normal",
+  normal: "detailed",
+  detailed: "minimal",
+};
+
+function renderActiveButtons(prefs: ConversationPrefs): InlineButton[][] {
+  const nextMode = MODE_CYCLE[prefs.mode] ?? "normal";
+  return [[
+    { text: `📊 ${nextMode}`, callback_data: `/sbmode ${nextMode}` },
+    { text: prefs.pinMode ? "📌 Unpin" : "📌 Pin", callback_data: prefs.pinMode ? "/sbunpin" : "/sbpin" },
+    { text: "⏹ Off", callback_data: "/sboff" },
+  ]];
+}
+
+function renderDoneButtons(prefs: ConversationPrefs): InlineButton[][] {
+  const nextMode = MODE_CYCLE[prefs.mode] ?? "normal";
+  return [[
+    { text: `📊 ${nextMode}`, callback_data: `/sbmode ${nextMode}` },
+    { text: "🔄 Reset", callback_data: "/sbreset" },
+    { text: "⏹ Off", callback_data: "/sboff" },
+  ]];
+}
+
+export function renderStatusButtons(session: SessionRuntime, prefs: ConversationPrefs): InlineButton[][] | undefined {
+  if (!prefs.buttonsEnabled) return undefined;
+  if (session.phase === "queued" || session.phase === "running" || session.phase === "tool") {
+    return renderActiveButtons(prefs);
+  }
+  if (session.phase === "done" || session.phase === "error") {
+    return renderDoneButtons(prefs);
+  }
+  return undefined;
+}
+
 // --- Public API ---
 
 export function renderStatusText(session: SessionRuntime, prefs: ConversationPrefs): string {

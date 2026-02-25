@@ -1,6 +1,6 @@
 {
   "name": "openclaw-statusbar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Telegram statusline plugin for OpenClaw",
   "type": "module",
   "license": "MIT",

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0] — 2026-02-25
+
+### ✨ Inline buttons
+
+Interactive buttons below the status bar — no need to type commands:
+
+- **During execution:** `[ 📊 mode ] [ 📌 Pin/Unpin ] [ ⏹ Off ]`
+- **On completion:** `[ 📊 mode ] [ 🔄 Reset ] [ ⏹ Off ]`
+- Mode button cycles: minimal → normal → detailed → minimal
+- Toggle with `/sbbuttons` (on/off per chat)
+- Buttons leverage Telegram's native callback_query — processed as commands by OpenClaw
+
+---
+
 ## [1.0.0] — 2026-02-25
 
 **First stable release.** 🎉

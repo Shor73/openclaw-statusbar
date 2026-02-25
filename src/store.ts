@@ -24,6 +24,7 @@ function defaultConversation(
     layout,
     progressMode,
     pinMode: false,
+    buttonsEnabled: true,
     historyRuns: 0,
     avgDurationMs: 0,
     avgSteps: 0,
@@ -56,6 +57,7 @@ function migrateConversationPrefs(
         ? raw.progressMode
         : defaults.defaultProgressMode,
     pinMode: typeof raw.pinMode === "boolean" ? raw.pinMode : false,
+    buttonsEnabled: typeof raw.buttonsEnabled === "boolean" ? raw.buttonsEnabled : true,
     historyRuns:
       typeof raw.historyRuns === "number" && Number.isFinite(raw.historyRuns)
         ? raw.historyRuns
