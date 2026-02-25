@@ -229,17 +229,17 @@ function renderNormal(session: SessionRuntime, prefs: ConversationPrefs): string
   const elapsed = formatClockMs(getElapsedMs(session));
 
   if (session.phase === "idle") return `${icon}idle`;
-  if (session.phase === "queued") return `${icon}${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
+  if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
 
   const progress = resolveProgress(session, prefs);
   const bar = renderProgressBar(progress.percent);
 
   if (session.phase === "done" || session.phase === "error") {
-    return `${icon}${focus} │ ${bar} │ ⏱${elapsed}`;
+    return `${icon} ${focus} │ ${bar} │ ⏱${elapsed}`;
   }
 
   const pct = progress.percent != null ? ` ${progress.percent}%` : "";
-  const parts = [`${icon}${focus} │ ${bar}${pct} │ ⏱${elapsed}`];
+  const parts = [`${icon} ${focus} │ ${bar}${pct} │ ⏱${elapsed}`];
   if (progress.etaMs != null) parts[0] += ` →${formatCompactSeconds(progress.etaMs)}`;
   return parts[0];
 }
@@ -260,7 +260,7 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const tokTag = tokens ? ` │ ${tokens}` : "";
 
   if (session.phase === "idle") return `${icon}idle`;
-  if (session.phase === "queued") return `${icon}${focus} ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
+  if (session.phase === "queued") return `${icon} ${focus} ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
 
   const progress = resolveProgress(session, prefs);
   const bar = renderProgressBar(progress.percent);
@@ -270,7 +270,7 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   }
 
   const pct = progress.percent != null ? `${progress.percent}%` : "";
-  let line = `${icon}${focus} | ${bar} ${pct} | ${elapsed}`;
+  let line = `${icon} ${focus} | ${bar} ${pct} | ${elapsed}`;
   if (progress.etaMs != null) line += `→${formatCompactSeconds(progress.etaMs)}`;
   return line;
 
