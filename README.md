@@ -1,4 +1,8 @@
-# openclaw-statusbar
+<p align="center">
+  <img src="assets/logo.jpg" alt="ShrimpBar Logo" width="400">
+</p>
+
+# ShrimpBar — openclaw-statusbar
 
 ```
 🖥 exec │ ████░░░ 52% │ 00:15→13s
