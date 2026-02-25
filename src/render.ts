@@ -19,6 +19,7 @@ const PROGRESS_MAX_PERCENT = 99;
 const ETA_MIN_RATIO_THRESHOLD = 0.08;
 const FALLBACK_STEPS_TOTAL = 4;
 const ETA_MIN_ELAPSED_MS = 3000;
+const ETA_ACTIVE_FLOOR_MS = 1000;      // sotto questa soglia → bump predicted end
 
 // --- Progress bar config ---
 const BAR_WIDTH = 7;
@@ -106,11 +107,23 @@ function renderProgressBar(percent: number | null): string {
 
 // --- Phase display ---
 
+const TOOL_ICONS: Record<string, string> = {
+  exec: "🖥", Read: "📖", read: "📖",
+  Write: "✏️", write: "✏️", Edit: "🔏", edit: "🔏",
+  process: "⏱️", web_search: "🔍", web_fetch: "🌐",
+  browser: "🌐", message: "💬", gateway: "🔌",
+  canvas: "🎨", nodes: "🔗", cron: "⏰",
+  sessions_spawn: "🧬", sessions_send: "📤",
+  subagents: "🤖", session_status: "📋",
+  image: "🖼", memory_search: "🧠", memory_get: "🧠",
+  tts: "🔊",
+};
+
 function resolveStatusIcon(session: SessionRuntime): string {
   switch (session.phase) {
-    case "queued":  return "⏳";
-    case "running": return "⚡";
-    case "tool":    return "🔧";
+    case "queued":  return "🔜";
+    case "running": return "💭";
+    case "tool":    return (session.toolName && TOOL_ICONS[session.toolName]) || "🔧";
     case "done":    return "🟢";
     case "error":   return "❌";
     default:        return "💤";
@@ -135,7 +148,11 @@ function resolveProgress(
   const isFinal = session.phase === "done" || session.phase === "error";
   const elapsedMs = getElapsedMs(session);
 
-  if (isFinal) return { percent: 100, etaMs: 0 };
+  if (isFinal) {
+    (session as any)._predictedEndMs = undefined;
+    (session as any)._etaSteps = undefined;
+    return { percent: 100, etaMs: 0 };
+  }
   if (prefs.progressMode === "strict") return { percent: null, etaMs: null };
 
   const rawStepsDone = Math.max(0, session.currentRunSteps);
@@ -143,20 +160,46 @@ function resolveProgress(
   const estimatedTotal = Math.max(historyTotal || FALLBACK_STEPS_TOTAL, rawStepsDone + 1);
   const stepRatio = estimatedTotal > 0 ? rawStepsDone / estimatedTotal : 0;
 
+  // percentRatio per la barra: blended steps + time
   let percentRatio = Math.max(PROGRESS_MIN_RATIO, stepRatio);
-  let etaMs: number | null = null;
-
   if (prefs.avgDurationMs > 0) {
     const timeRatio = Math.min(PROGRESS_MAX_RATIO, elapsedMs / prefs.avgDurationMs);
     percentRatio = Math.max(
       stepRatio,
       Math.min(PROGRESS_MAX_RATIO, stepRatio * PROGRESS_STEP_WEIGHT + timeRatio * PROGRESS_TIME_WEIGHT),
     );
-    if (elapsedMs >= ETA_MIN_ELAPSED_MS) {
-      etaMs = Math.max(0, Math.round(prefs.avgDurationMs - elapsedMs));
+  }
+
+  // ETA: predicted end time approach (step-based, NOT time-blended)
+  let etaMs: number | null = null;
+  if (elapsedMs >= ETA_MIN_ELAPSED_MS) {
+    const now = Date.now();
+    const prevSteps = (session as any)._etaSteps as number | undefined;
+    const predictedEnd = (session as any)._predictedEndMs as number | undefined;
+    const stepsRemaining = Math.max(1, estimatedTotal - rawStepsDone);
+
+    // Velocità media di uno step basata su questo run
+    const avgStepMs = rawStepsDone > 0
+      ? elapsedMs / rawStepsDone
+      : (prefs.avgDurationMs > 0 ? prefs.avgDurationMs / Math.max(1, historyTotal) : 10000);
+
+    if (prevSteps !== rawStepsDone || !predictedEnd) {
+      // Nuovo step o primo calcolo: calcola predicted end time
+      const newEnd = now + stepsRemaining * avgStepMs;
+      (session as any)._predictedEndMs = newEnd;
+      (session as any)._etaSteps = rawStepsDone;
+      etaMs = Math.round(newEnd - now);
+    } else {
+      // Tra step: countdown verso predicted end
+      etaMs = Math.round(predictedEnd - now);
+      if (etaMs < ETA_ACTIVE_FLOOR_MS) {
+        // Predicted end superato ma non done → bump forward
+        // "Ci vuole più del previsto" — ricalcola dalla velocità attuale
+        const newEnd = now + stepsRemaining * avgStepMs;
+        (session as any)._predictedEndMs = newEnd;
+        etaMs = Math.round(newEnd - now);
+      }
     }
-  } else if (percentRatio > ETA_MIN_RATIO_THRESHOLD && elapsedMs >= ETA_MIN_ELAPSED_MS) {
-    etaMs = Math.max(0, Math.round((elapsedMs * (1 - percentRatio)) / percentRatio));
   }
 
   return {
