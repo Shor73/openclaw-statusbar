@@ -98,6 +98,11 @@ class GlobalRateLimiter {
   }
 }
 
+function redactToken(msg: string, token: string): string {
+  if (!token) return msg;
+  return msg.replaceAll(token, "BOT_TOKEN_REDACTED");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -228,7 +233,10 @@ export class TelegramTransport {
           err instanceof TelegramApiError
             ? err
             : new TelegramApiError({
-                description: err instanceof Error ? err.message : String(err),
+                description: redactToken(
+                  err instanceof Error ? err.message : String(err),
+                  params.token,
+                ),
               });
 
         if (apiError.isMessageNotModified()) throw apiError;
@@ -320,12 +328,13 @@ export class TelegramTransport {
     text: string;
     buttons?: TelegramInlineButtons;
   }): Promise<StatusMessageRef> {
-    this.api.logger.debug(`[SB-EDIT] chat=${params.target.chatId} t=${Date.now()}`);
+    this.api.logger.debug?.(`[SB-EDIT] chat=${params.target.chatId} t=${Date.now()}`);
     // Prova prima il path SDK (OpenClaw messageActions)
     try {
       const messageActions = this.api.runtime.channel.telegram.messageActions;
-      if (messageActions?.handleAction) {
-        const actionResult = (await messageActions.handleAction({
+      const handleAction = messageActions?.handleAction;
+      if (handleAction) {
+        const actionResult = (await handleAction({
           channel: "telegram",
           action: "edit",
           cfg: this.api.config,

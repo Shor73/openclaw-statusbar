@@ -149,8 +149,8 @@ function resolveProgress(
   const elapsedMs = getElapsedMs(session);
 
   if (isFinal) {
-    (session as any)._predictedEndMs = undefined;
-    (session as any)._etaSteps = undefined;
+    session._predictedEndMs = undefined;
+    session._etaSteps = undefined;
     return { percent: 100, etaMs: 0 };
   }
   if (prefs.progressMode === "strict") return { percent: null, etaMs: null };
@@ -174,8 +174,8 @@ function resolveProgress(
   let etaMs: number | null = null;
   if (elapsedMs >= ETA_MIN_ELAPSED_MS) {
     const now = Date.now();
-    const prevSteps = (session as any)._etaSteps as number | undefined;
-    const predictedEnd = (session as any)._predictedEndMs as number | undefined;
+    const prevSteps = session._etaSteps as number | undefined;
+    const predictedEnd = session._predictedEndMs as number | undefined;
     const stepsRemaining = Math.max(1, estimatedTotal - rawStepsDone);
 
     // Velocità media di uno step basata su questo run
@@ -186,8 +186,8 @@ function resolveProgress(
     if (prevSteps !== rawStepsDone || !predictedEnd) {
       // Nuovo step o primo calcolo: calcola predicted end time
       const newEnd = now + stepsRemaining * avgStepMs;
-      (session as any)._predictedEndMs = newEnd;
-      (session as any)._etaSteps = rawStepsDone;
+      session._predictedEndMs = newEnd;
+      session._etaSteps = rawStepsDone;
       etaMs = Math.round(newEnd - now);
     } else {
       // Tra step: countdown verso predicted end
@@ -196,7 +196,7 @@ function resolveProgress(
         // Predicted end superato ma non done → bump forward
         // "Ci vuole più del previsto" — ricalcola dalla velocità attuale
         const newEnd = now + stepsRemaining * avgStepMs;
-        (session as any)._predictedEndMs = newEnd;
+        session._predictedEndMs = newEnd;
         etaMs = Math.round(newEnd - now);
       }
     }

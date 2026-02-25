@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -111,7 +112,14 @@ async function readStoreFile(
 
 async function writeStoreFile(filePath: string, data: PersistedStore): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+  const tmpPath = `${filePath}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    await fs.writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+    await fs.rename(tmpPath, filePath);
+  } catch (err) {
+    try { await fs.unlink(tmpPath); } catch { /* ignore cleanup failure */ }
+    throw err;
+  }
 }
 
 export class StatusbarStore {

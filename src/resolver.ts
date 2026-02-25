@@ -12,7 +12,7 @@ type MessageReceivedEvent = {
   metadata?: Record<string, unknown>;
 };
 
-type RoutePeer = { kind: "dm" | "group"; id: string };
+type RoutePeer = { kind: "direct" | "group"; id: string };
 
 const TELEGRAM_PREFIX       = "telegram:";
 const TELEGRAM_GROUP_PREFIX = "telegram:group:";
@@ -136,7 +136,7 @@ function resolveRoutePeer(
   }
 
   const directPeer = parseChatIdFromReference(from) ?? target.chatId;
-  return { peer: { kind: "dm", id: directPeer } };
+  return { peer: { kind: "direct", id: directPeer } };
 }
 
 export function resolveTelegramTargetFromMessageReceived(params: {

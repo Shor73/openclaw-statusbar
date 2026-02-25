@@ -1005,9 +1005,8 @@ class StatusbarRuntime {
     // Flush per aggiornare subito (rimuovere/aggiungere bottoni)
     for (const session of this.sessions.values()) {
       if (session.target.chatId === target.chatId && session.target.threadId === target.threadId) {
-        session.desiredRevision++;
         session.lastRenderedControlsKey = "";
-        void this.flushSession(session.sessionKey);
+        this.markDirty(session, true);
       }
     }
 

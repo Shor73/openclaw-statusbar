@@ -78,6 +78,8 @@ export type SessionRuntime = {
   renderTimer: ReturnType<typeof setTimeout> | null;
   isFlushing: boolean;
   hideTimer: ReturnType<typeof setTimeout> | null;
+  _predictedEndMs?: number;
+  _etaSteps?: number;
 };
 
 export type TelegramInlineButtons = Array<Array<{ text: string; callback_data: string }>>;

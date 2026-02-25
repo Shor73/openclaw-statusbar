@@ -165,17 +165,17 @@ Add to your `openclaw.json` under `plugins.entries.openclaw-statusbar.config`:
 
 ### ⚡ Want faster updates?
 
-Lower the throttle for fluid seconds display. This increases Telegram API calls — use with caution:
+Lower the throttle for more fluid updates. **Warning:** values below 2000ms significantly increase the risk of Telegram rate limits (HTTP 429). The built-in circuit breaker prevents bans, but updates will become intermittent during cooldown periods.
 
 ```json
 {
   "throttleMs": 2000,
-  "minThrottleMs": 1000,
-  "liveTickMs": 1000
+  "minThrottleMs": 1500,
+  "liveTickMs": 1500
 }
 ```
 
-The built-in circuit breaker protects against 429 bans even with aggressive settings.
+Do not go lower than these values unless you fully understand Telegram Bot API rate limits.
 
 ---
 
