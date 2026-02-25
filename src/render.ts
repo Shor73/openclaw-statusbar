@@ -21,7 +21,7 @@ const FALLBACK_STEPS_TOTAL = 4;
 const ETA_MIN_ELAPSED_MS = 3000;
 
 // --- Progress bar config ---
-const BAR_WIDTH = 10;
+const BAR_WIDTH = 7;
 const BAR_FILLED = "█";
 const BAR_EMPTY = "░";
 
@@ -111,7 +111,7 @@ function resolveStatusIcon(session: SessionRuntime): string {
     case "queued":  return "⏳";
     case "running": return "⚡";
     case "tool":    return "🔧";
-    case "done":    return "✅";
+    case "done":    return "🟢";
     case "error":   return "❌";
     default:        return "💤";
   }
@@ -185,18 +185,18 @@ function renderNormal(session: SessionRuntime, prefs: ConversationPrefs): string
   const focus = resolveFocusLabel(session);
   const elapsed = formatClockMs(getElapsedMs(session));
 
-  if (session.phase === "idle") return `${icon} idle`;
-  if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
+  if (session.phase === "idle") return `${icon}idle`;
+  if (session.phase === "queued") return `${icon}${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
 
   const progress = resolveProgress(session, prefs);
   const bar = renderProgressBar(progress.percent);
 
   if (session.phase === "done" || session.phase === "error") {
-    return `${icon} ${focus} │ ${bar} │ ⏱${elapsed}`;
+    return `${icon}${focus} │ ${bar} │ ⏱${elapsed}`;
   }
 
   const pct = progress.percent != null ? ` ${progress.percent}%` : "";
-  const parts = [`${icon} ${focus} │ ${bar}${pct} │ ⏱${elapsed}`];
+  const parts = [`${icon}${focus} │ ${bar}${pct} │ ⏱${elapsed}`];
   if (progress.etaMs != null) parts[0] += ` →${formatCompactSeconds(progress.etaMs)}`;
   return parts[0];
 }
@@ -212,25 +212,25 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const isActive = session.phase === "running" || session.phase === "tool";
   const model = shortModel(session.model, isActive || session.phase === "done" || session.phase === "error");
   const thinkLabel = DEFAULT_THINKING.charAt(0).toUpperCase() + DEFAULT_THINKING.slice(1);
-  const modelTag = model ? ` │ 🧠${model}|${thinkLabel}` : "";
+  const modelTag = model ? ` ${model}|${thinkLabel}` : "";
   const tokens = formatTokens(session.usageInput, session.usageOutput);
   const tokTag = tokens ? ` │ ${tokens}` : "";
 
-  if (session.phase === "idle") return `${icon} idle`;
-  if (session.phase === "queued") return `${icon} ${focus} │ ${BAR_EMPTY.repeat(BAR_WIDTH)} │ attendo…`;
+  if (session.phase === "idle") return `${icon}idle`;
+  if (session.phase === "queued") return `${icon}${focus} ${BAR_EMPTY.repeat(BAR_WIDTH)}`;
 
   const progress = resolveProgress(session, prefs);
   const bar = renderProgressBar(progress.percent);
 
   if (session.phase === "done" || session.phase === "error") {
-    return `${icon} ${focus}${modelTag} │ ${bar} │ ⏱${elapsed}${tokTag}`;
+    return `${icon} ${focus} |${modelTag} | ${elapsed}s${tokTag}`;
   }
 
-  const pct = progress.percent != null ? ` ${progress.percent}%` : "";
-  let line = `${icon} ${focus}${modelTag} │ ${bar}${pct} │ ⏱${elapsed}`;
-  if (progress.etaMs != null) line += ` →${formatCompactSeconds(progress.etaMs)}`;
-  line += tokTag;
+  const pct = progress.percent != null ? `${progress.percent}%` : "";
+  let line = `${icon}${focus} | ${bar} ${pct} | ${elapsed}`;
+  if (progress.etaMs != null) line += `→${formatCompactSeconds(progress.etaMs)}`;
   return line;
+
 }
 
 // --- Public API ---
