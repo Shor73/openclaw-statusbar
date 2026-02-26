@@ -17,6 +17,7 @@
 [![Telegram](https://img.shields.io/badge/Telegram-live%20pin-26A5E4?style=flat-square&logo=telegram)](https://telegram.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
+[![Website](https://img.shields.io/badge/🦐-Website-ff6b35?style=flat-square)](https://sacred-virtue-xvnk.here.now/)
 
 ---
 
