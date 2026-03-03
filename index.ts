@@ -627,7 +627,7 @@ class StatusbarRuntime {
         session.phase = "done";
         this.markDirty(session, true);
       }
-    }, 180_000);
+    }, 60_000);
     // fix #21: cambio fase → flush urgente, bypass throttle
     this.markDirty(session, true);
   }
@@ -738,8 +738,15 @@ class StatusbarRuntime {
     session.phase     = event.success ? "done" : "error";
     session.toolName  = null;
     session.error     = event.error ?? null;
-    // fix #21: completamento/errore → flush urgente, l'utente deve vedere il risultato subito
-    this.markDirty(session, true);
+    // fix #26: usa 300ms di delay per "done"/"error" invece di 0ms (urgent).
+    // Questo permette a fix #24 di cancellare il render se arriva un secondo before_agent_start
+    // (adaptive thinking double-cycle) prima che "Done" venga inviato a Telegram.
+    if (session.renderTimer) {
+      clearTimeout(session.renderTimer);
+      session.renderTimer = null;
+    }
+    session.desiredRevision += 1;
+    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, 300);
 
     if (event.success) {
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
