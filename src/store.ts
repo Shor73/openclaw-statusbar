@@ -166,13 +166,21 @@ export class StatusbarStore {
       await this.persist();
       return;
     }
-    this.data = {
-      version: 1,
-      conversations:
-        typeof loaded.conversations === "object" && loaded.conversations
-          ? loaded.conversations
-          : {},
-    };
+    const rawConversations =
+      typeof loaded.conversations === "object" && loaded.conversations
+        ? loaded.conversations
+        : {};
+    // Migrate all conversations at load time (no side effects in getConversation)
+    const migrated: Record<string, ConversationPrefs> = {};
+    for (const [key, raw] of Object.entries(rawConversations)) {
+      migrated[key] = migrateConversationPrefs(raw, {
+        enabledByDefault:    this.enabledByDefault,
+        defaultMode:         this.defaultMode,
+        defaultLayout:       this.defaultLayout,
+        defaultProgressMode: this.defaultProgressMode,
+      });
+    }
+    this.data = { version: 1, conversations: migrated };
   }
 
   getConversation(
@@ -180,17 +188,8 @@ export class StatusbarStore {
   ): ConversationPrefs {
     const key = resolveConversationKey(target);
     const existing = this.data.conversations[key];
-    if (existing) {
-      // fix #8: usa funzione pura invece di mutare il record in-place
-      const migrated = migrateConversationPrefs(existing, {
-        enabledByDefault:    this.enabledByDefault,
-        defaultMode:         this.defaultMode,
-        defaultLayout:       this.defaultLayout,
-        defaultProgressMode: this.defaultProgressMode,
-      });
-      this.data.conversations[key] = migrated;
-      return migrated;
-    }
+    if (existing) return existing;
+    // Lazily create default entry (only mutation is for new keys)
     const next = defaultConversation(
       this.enabledByDefault,
       this.defaultMode,
