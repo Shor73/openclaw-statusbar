@@ -26,6 +26,12 @@ const RE_AGENT_MAIN = /^agent:([^:]+):main$/;
 type SessionTargetRef = { target: TelegramTarget; seenAtMs: number };
 type SenderTargetRef  = { target: TelegramTarget; seenAtMs: number };
 
+// fix #30: callback data whitelist — reject unknown callback_data values
+const VALID_CALLBACKS = new Set([
+  "/sbon", "/sboff", "/sbmode normal", "/sbmode detailed", "/sbmode minimal",
+  "/sbpin", "/sbunpin", "/sbstatus", "/sbreset", "/sbsettings", "/sbbuttons",
+]);
+
 const SESSION_TARGET_TTL_MS = 30 * 60 * 1000;
 // fix #1: rimuove sessioni completate dopo 2h per evitare memory leak
 const SESSION_STALE_MS      =  2 * 60 * 60 * 1000;
@@ -661,28 +667,23 @@ class StatusbarRuntime {
     const lockFile = this.lockPath(chatId);
     const now = Date.now();
     try {
-      // Atomic create: O_CREAT|O_EXCL via 'wx' flag — fails with EEXIST if file exists
       const fd = openSync(lockFile, "wx");
       writeFileSync(fd, now.toString(), "utf8");
       closeSync(fd);
       return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") return false;
-      // Lock file exists — check if stale (>90s)
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return false;
+      // Lock exists — check if stale (>90s)
       try {
-        const ts = parseInt(readFileSync(lockFile, "utf8") || "0", 10);
-        if (!isNaN(ts) && now - ts < 90_000) {
-          return false; // Lock still active
-        }
-        // Stale lock — remove and retry once
-        try { unlinkSync(lockFile); } catch { /* ignore */ }
-        try {
-          const fd = openSync(lockFile, "wx");
-          writeFileSync(fd, now.toString(), "utf8");
-          closeSync(fd);
+        const content = readFileSync(lockFile, "utf8");
+        const ts = parseInt(content, 10);
+        if (isNaN(ts) || now - ts >= 90_000) {
+          // Stale lock — overwrite directly (atomic for single-host)
+          writeFileSync(lockFile, now.toString(), "utf8");
           return true;
-        } catch { return false; }
+        }
       } catch { return false; }
+      return false;
     }
   }
   private releaseLock(chatId: string | number): void {
