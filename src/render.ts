@@ -60,9 +60,9 @@ const DEFAULT_THINKING = "high";
 
 const MODEL_PATTERNS: [RegExp, string][] = [
   [/glm[-_]?(\d[\d.]*)/, "glm"],
-  [/opus[-_]?(\d[\d.]*)/, "opus"],
-  [/sonnet[-_]?(\d[\d.]*)/, "sonnet"],
-  [/haiku[-_]?(\d[\d.]*)/, "haiku"],
+  [/opus[-_]?(\d[\d.\-]*)/, "opus"],
+  [/sonnet[-_]?(\d[\d.\-]*)/, "sonnet"],
+  [/haiku[-_]?(\d[\d.\-]*)/, "haiku"],
   [/gpt[-_]?(\d[\d.]*)/, "gpt"],
   [/llama[-_]?(\d[\d.]*)/, "llama"],
   [/minimax/, "minimax"],
@@ -76,7 +76,7 @@ function shortModel(model: string | null, fallback = false): string | null {
   for (const [pattern, label] of MODEL_PATTERNS) {
     const match = m.match(pattern);
     if (match) {
-      const version = match[1] ? `-${match[1]}` : "";
+      const version = match[1] ? `-${match[1].replace(/-/g, ".")}` : "";
       return `${label}${version}`;
     }
   }
