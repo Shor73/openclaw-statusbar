@@ -1,6 +1,5 @@
 import type { OpenClawPluginApi, ReplyPayload } from "openclaw/plugin-sdk";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, openSync, closeSync } from "node:fs";
-import { execSync } from "node:child_process";
 import { normalizePluginConfig } from "./src/config.js";
 import {
   resolveSessionKeyFromMessageReceived,
@@ -124,13 +123,6 @@ class StatusbarRuntime {
       acceptsArgs: false,
       handler: async (ctx) => this.handleButtonsCommand(ctx),
     });
-    this.api.registerCommand({
-      name: "streaming",
-      description: "Toggle message streaming on/off",
-      acceptsArgs: true,
-      handler: async (ctx) => this.handleStreamingCommand(ctx),
-    });
-
     this.api.on("message_received", async (event, ctx) => {
       await this.onMessageReceived(event, ctx);
     });
@@ -995,65 +987,6 @@ class StatusbarRuntime {
     if (session.queuedCount <= 0) {
       this.scheduleAutoHide(session);
     }
-  }
-
-  
-  // ──────────────────────────────────────────────────────────────────────────
-  // Streaming command handler (native, instant — no AI needed)
-  private async handleStreamingCommand(ctx: {
-    channel: string; senderId?: string; accountId?: string;
-    to?: string; from?: string; messageThreadId?: number; args?: string;
-  }): Promise<ReplyPayload> {
-    const target = this.resolveTargetForCommand(ctx);
-    const configPath = process.env.HOME + "/.openclaw/openclaw.json";
-
-    // Read current streaming state
-    let currentStreaming = "off";
-    let config: Record<string, unknown> = {};
-    try {
-      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-      const tg = (config as Record<string, unknown>)?.channels as Record<string, unknown>;
-      const accounts = (tg?.telegram as Record<string, unknown>)?.accounts as Record<string, unknown>;
-      const main = accounts?.main as Record<string, unknown>;
-      currentStreaming = (main?.streaming as string) ?? "off";
-    } catch { /* ignore */ }
-
-    const args = (ctx.args ?? "").trim().toLowerCase();
-
-    // Apply change if args provided
-    if (args === "on" || args === "off") {
-      const newValue = args === "on" ? "partial" : "off";
-      try {
-        const tg = (config as Record<string, unknown>)?.channels as Record<string, unknown>;
-        const accounts = (tg?.telegram as Record<string, unknown>)?.accounts as Record<string, unknown>;
-        const main = accounts?.main as Record<string, unknown>;
-        if (main) main.streaming = newValue;
-        writeFileSync(configPath, JSON.stringify(config, null, 2));
-        currentStreaming = newValue;
-        // Reload gateway config
-        execSync(`/bin/bash -c "kill -USR1 $(pgrep -f 'openclaw.*gateway' | head -1) 2>/dev/null || true"`);
-      } catch (err) {
-        this.api.logger.warn(`streaming command config write failed: ${String(err)}`);
-      }
-    }
-
-    const isOn = currentStreaming === "partial";
-    const statusText = isOn
-      ? "📡 Streaming messaggi\n\nStato: ✅ ON (partial)\nIl testo appare in tempo reale."
-      : "📡 Streaming messaggi\n\nStato: OFF\nLe risposte arrivano complete.";
-    const buttons: Array<Array<{ text: string; callback_data: string }>> = [[
-      { text: isOn ? "✅ ON" : "ON", callback_data: "/streaming on" },
-      { text: isOn ? "OFF" : "✅ OFF", callback_data: "/streaming off" },
-    ]];
-
-    if (target) {
-      try {
-        await this.transport.sendStatusMessage({ target, text: statusText, buttons });
-        return { text: "" };
-      } catch { /* fallback to text reply */ }
-    }
-
-    return { text: statusText };
   }
 
   // Command handlers
