@@ -287,6 +287,14 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const pct = progress.percent != null ? `${progress.percent}%` : "";
   let line = `${icon} ${focus} | ${bar} ${pct} | ${elapsed}`;
   if (progress.etaMs != null) line += `→${formatCompactSeconds(progress.etaMs)}`;
+  // v2.0: show tool counter when we have real predicted count from llm_output
+  const done = session.currentRunSteps;
+  const predicted = session.predictedSteps ?? 0;
+  if (predicted > 0 && (session.phase === "tool" || session.phase === "running")) {
+    line += ` │ ${done}/${predicted}🔧`;
+  } else if (done > 0 && session.phase === "tool") {
+    line += ` │ ${done}🔧`;
+  }
   return line;
 
 }
