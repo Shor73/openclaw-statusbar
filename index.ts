@@ -373,9 +373,7 @@ class StatusbarRuntime {
     // fix #28: usa chatId+threadId come key, NON accountId
     // accountId può essere "main" o "default" per lo stesso chat (hook da contesti diversi)
     // → creava due sessioni parallele che editavano lo stesso messaggio → flickering
-    const key = `chat|${target.chatId}|${target.threadId ?? "main"}`;
-    this.api.logger.info(`statusbar: runtimeKey=${key} (account=${target.accountId} conv=${target.conversationId} thread=${target.threadId})`);
-    return key;
+    return `chat|${target.chatId}|${target.threadId ?? "main"}`;
   }
 
   private createSessionState(params: { sessionKey: string; target: TelegramTarget }): SessionRuntime {
@@ -420,14 +418,10 @@ class StatusbarRuntime {
     const existing = this.sessions.get(runtimeSessionKey);
     if (existing) {
       existing.target = target;
-      // DEBUG v2.1.1: log when reusing session
-      this.api.logger.info(`statusbar: REUSE session ${runtimeSessionKey} phase=${existing.phase} started=${existing.startedAtMs}`);
       return existing;
     }
     const created = this.createSessionState({ sessionKey: runtimeSessionKey, target });
     this.sessions.set(runtimeSessionKey, created);
-    // DEBUG v2.1.1: log when creating new session
-    this.api.logger.info(`statusbar: CREATE session ${runtimeSessionKey}`);
     return created;
   }
 
@@ -712,12 +706,10 @@ class StatusbarRuntime {
     // fix #29: cross-instance lock — se un'altra istanza sta già gestendo questo chat, skip
     const session = this.getOrCreateSession(target);
     if (session.phase === "running" || session.phase === "thinking" || session.phase === "tool") {
-      this.touchLock(target.chatId); // rinnova il lock
-      this.api.logger.info(`statusbar: SKIP before_agent_start (session active ${session.phase})`);
+      this.touchLock(target.chatId);
       return;
     }
     if (!this.acquireLock(target.chatId)) {
-      this.api.logger.info(`statusbar: SKIP before_agent_start (lock held by other instance) chatId=${target.chatId}`);
       return;
     }
     
