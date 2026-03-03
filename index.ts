@@ -503,8 +503,9 @@ class StatusbarRuntime {
     const session = this.sessions.get(sessionKey);
     if (!session || session.isFlushing) return;
 
-    // fix #30: only the lock owner can edit the message — prevents dual-instance flickering
-    if (!this.isLockOwner(session.target.chatId)) return;
+    // fix #30: only the lock owner can edit during active phases — prevents dual-instance flickering
+    // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
+    if (ACTIVE_PHASES.has(session.phase) && !this.isLockOwner(session.target.chatId)) return;
 
     const prefs = this.store.getConversation(session.target);
     if (!prefs.enabled) return;
