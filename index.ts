@@ -150,8 +150,13 @@ class StatusbarRuntime {
     this.api.on("llm_input", async (event, ctx) => {
       await this.onLlmInput(event, ctx);
     });
+    // message_sending fires just BEFORE the Telegram API call — fastest trigger for "done"
+    this.api.on("message_sending", async (event, ctx) => {
+      await this.onMessageDelivering(event, ctx);
+    });
+    // message_sent fires after HTTP confirmation — fallback in case message_sending is unreliable
     this.api.on("message_sent", async (event, ctx) => {
-      await this.onMessageSent(event, ctx);
+      await this.onMessageDelivering(event, ctx);
     });
   }
 
@@ -890,9 +895,11 @@ class StatusbarRuntime {
     }
   }
 
-  private async onMessageSent(
-    event: { to: string; content: string; success: boolean; error?: string },
-    ctx:   { channelId: string; accountId?: string; conversationId?: string },
+    // Handles both message_sending and message_sent — whichever fires first wins.
+  // message_sending is faster (fires before HTTP call) so "done" appears near delivery time.
+  private async onMessageDelivering(
+    _event: { to: string; content: string },
+    ctx:    { channelId: string; accountId?: string; conversationId?: string },
   ): Promise<void> {
     if (ctx.channelId !== "telegram") return;
     const conversationId = ctx.conversationId;
@@ -949,7 +956,7 @@ class StatusbarRuntime {
         writeFileSync(configPath, JSON.stringify(config, null, 2));
         currentStreaming = newValue;
         // Reload gateway config
-        execSync("kill -USR1 $(pgrep -f 'openclaw.*gateway\|node.*openclaw' | head -1) 2>/dev/null || true", { shell: true });
+        execSync(`/bin/bash -c "kill -USR1 $(pgrep -f 'openclaw.*gateway' | head -1) 2>/dev/null || true"`);
       } catch (err) {
         this.api.logger.warn(`streaming command config write failed: ${String(err)}`);
       }
