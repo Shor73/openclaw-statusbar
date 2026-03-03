@@ -274,7 +274,8 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const elapsed = formatClockMs(getElapsedMs(session));
   const isActive = session.phase === "running" || session.phase === "tool";
   const model = shortModel(session.model, isActive || session.phase === "done" || session.phase === "error");
-  const thinkLabel = DEFAULT_THINKING.charAt(0).toUpperCase() + DEFAULT_THINKING.slice(1);
+  const thinkRaw = session.thinkingLevel ?? DEFAULT_THINKING;
+  const thinkLabel = thinkRaw.charAt(0).toUpperCase() + thinkRaw.slice(1);
   const modelTag = model ? ` ${model}|${thinkLabel}` : "";
   const tokens = formatTokens(session.usageInput, session.usageOutput);
   const tokTag = tokens ? ` │ ${tokens}` : "";

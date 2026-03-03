@@ -400,6 +400,7 @@ class StatusbarRuntime {
       isThinkingRun: false,
       predictedSteps: 0,
       toolDurationsRaw: new Map(),
+      thinkingLevel: null,
     };
   }
 
@@ -686,7 +687,7 @@ class StatusbarRuntime {
     try { writeFileSync(this.lockPath(chatId), Date.now().toString(), "utf8"); } catch { /* ignore */ }
   }
 
-  private async onBeforeAgentStart(ctx: { sessionKey?: string }): Promise<void> {
+  private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string }): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
@@ -742,6 +743,11 @@ class StatusbarRuntime {
     session.usageInput    = null;
     session.usageOutput   = null;
     session.lastUsageRenderAtMs = 0;
+    // Extract thinking level from context
+    const thinkingRaw = ctx.thinkingLevel ?? ctx.reasoning;
+    if (typeof thinkingRaw === "string" && thinkingRaw.trim()) {
+      session.thinkingLevel = thinkingRaw.trim();
+    }
     // fix #25: safety net — se agent_end non scatta entro 300s, forza "done"
     if (session.maxRunTimer) {
       clearTimeout(session.maxRunTimer);
@@ -806,7 +812,7 @@ class StatusbarRuntime {
 
   private async onLlmInput(
     event: { runId: string; sessionId: string; provider: string; model: string; historyMessages: unknown[]; imagesCount: number },
-    ctx:   { sessionKey?: string },
+    ctx:   { sessionKey?: string; thinkingLevel?: string; reasoning?: string },
   ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
     if (!sessionKey) return;
@@ -818,6 +824,10 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     session.currentRunId = event.runId;
     session.isThinkingRun = true; // assume thinking until llm_output proves otherwise
+    const thinkingRaw = ctx.thinkingLevel ?? ctx.reasoning;
+    if (typeof thinkingRaw === "string" && thinkingRaw.trim()) {
+      session.thinkingLevel = thinkingRaw.trim();
+    }
     if (session.phase === "running") {
       this.transitionPhase(session, "thinking");
     }

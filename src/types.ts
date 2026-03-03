@@ -86,6 +86,7 @@ export type SessionRuntime = {
   isThinkingRun: boolean;
   predictedSteps: number;
   toolDurationsRaw: Map<string, number[]>;
+  thinkingLevel: string | null;
   _predictedEndMs?: number;
   _etaSteps?: number;
 };
