@@ -40,6 +40,7 @@ class StatusbarRuntime {
   private readonly config: StatusbarPluginConfig;
   private readonly store: StatusbarStore;
   private readonly transport: TelegramTransport;
+  private readonly instanceId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   private readonly sessions      = new Map<string, SessionRuntime>();
   private readonly sessionTargets = new Map<string, SessionTargetRef>();
   private readonly senderTargets  = new Map<string, SenderTargetRef>();
@@ -660,20 +661,26 @@ class StatusbarRuntime {
   private acquireLock(chatId: string | number): boolean {
     const lockFile = this.lockPath(chatId);
     const now = Date.now();
+    const payload = `${now}:${this.instanceId}`;
     try {
       const fd = openSync(lockFile, "wx");
-      writeFileSync(fd, now.toString(), "utf8");
+      writeFileSync(fd, payload, "utf8");
       closeSync(fd);
       return true;
     } catch (e: unknown) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") return false;
-      // Lock exists — check if stale (>90s)
       try {
         const content = readFileSync(lockFile, "utf8");
-        const ts = parseInt(content, 10);
+        const [tsStr, owner] = content.split(":");
+        const ts = parseInt(tsStr, 10);
+        // If WE own the lock, allow re-entry
+        if (owner === this.instanceId) {
+          writeFileSync(lockFile, payload, "utf8");
+          return true;
+        }
+        // If stale (>90s), take over
         if (isNaN(ts) || now - ts >= 90_000) {
-          // Stale lock — overwrite directly (atomic for single-host)
-          writeFileSync(lockFile, now.toString(), "utf8");
+          writeFileSync(lockFile, payload, "utf8");
           return true;
         }
       } catch { return false; }
@@ -684,7 +691,15 @@ class StatusbarRuntime {
     try { unlinkSync(this.lockPath(chatId)); } catch { /* ignore */ }
   }
   private touchLock(chatId: string | number): void {
-    try { writeFileSync(this.lockPath(chatId), Date.now().toString(), "utf8"); } catch { /* ignore */ }
+    try { writeFileSync(this.lockPath(chatId), `${Date.now()}:${this.instanceId}`, "utf8"); } catch { /* ignore */ }
+  }
+
+  private isLockOwner(chatId: string | number): boolean {
+    try {
+      const content = readFileSync(this.lockPath(chatId), "utf8");
+      const owner = content.split(":")[1];
+      return owner === this.instanceId;
+    } catch { return false; }
   }
 
   private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string }): Promise<void> {
@@ -701,7 +716,10 @@ class StatusbarRuntime {
     // fix #29: cross-instance lock — se un'altra istanza sta già gestendo questo chat, skip
     const session = this.getOrCreateSession(target);
     if (session.phase === "running" || session.phase === "thinking" || session.phase === "tool") {
-      this.touchLock(target.chatId);
+      // Only touch if we own the lock
+      if (this.isLockOwner(target.chatId)) {
+        this.touchLock(target.chatId);
+      }
       return;
     }
     if (!this.acquireLock(target.chatId)) {

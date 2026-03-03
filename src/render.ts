@@ -72,7 +72,7 @@ const MODEL_PATTERNS: [RegExp, string][] = [
 
 function shortModel(model: string | null, fallback = false): string | null {
   if (!model) return fallback ? DEFAULT_MODEL_LABEL : null;
-  const m = model.toLowerCase().replace(/-/g, "-"); // normalize
+  const m = model.toLowerCase().replace(/_/g, "-"); // normalize
   for (const [pattern, label] of MODEL_PATTERNS) {
     const match = m.match(pattern);
     if (match) {
