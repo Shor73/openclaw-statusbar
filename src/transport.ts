@@ -58,7 +58,8 @@ export class TelegramApiError extends Error {
   }
 
   isEditNotFound(): boolean {
-    return this.code === 400 && MESSAGE_TO_EDIT_NOT_FOUND_RE.test(this.description);
+    // code may be null when error comes from SDK path (wraps without HTTP status code)
+    return MESSAGE_TO_EDIT_NOT_FOUND_RE.test(this.description);
   }
 
   isMessageNotModified(): boolean {

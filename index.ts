@@ -188,7 +188,15 @@ class StatusbarRuntime {
         idleSession.phase = "idle";
         const text = renderStatusText(idleSession, prefs);
         await this.transport.editStatusMessage({ target, message: ref, text, buttons: undefined });
-      } catch { /* message deleted or network error — ignore */ }
+      } catch (err) {
+        // If message no longer exists, clear the stale ref to stop future errors
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/message to edit not found/i.test(msg)) {
+          this.store.setStatusMessage(target, null);
+          await this.store.persist().catch(() => {});
+        }
+        // all other errors (network, etc.) — silently ignore
+      }
     }
   }
 
