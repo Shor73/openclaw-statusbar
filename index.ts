@@ -738,15 +738,18 @@ class StatusbarRuntime {
     session.phase     = event.success ? "done" : "error";
     session.toolName  = null;
     session.error     = event.error ?? null;
-    // fix #26: usa 300ms di delay per "done"/"error" invece di 0ms (urgent).
-    // Questo permette a fix #24 di cancellare il render se arriva un secondo before_agent_start
-    // (adaptive thinking double-cycle) prima che "Done" venga inviato a Telegram.
+    // fix #26 v2: delay scalato in base alla durata del run.
+    // Thinking turns (< 6s) usano 1500ms di delay per permettere al response turn di
+    // cancellarli prima che "Done" venga inviato a Telegram (adaptive thinking double-cycle).
+    // Response runs veri (>= 6s) usano 400ms — percettibilmente immediato ma sicuro.
+    const runDurationMs = nowMs - session.startedAtMs;
+    const doneDelayMs   = runDurationMs < 6_000 ? 1_500 : 400;
     if (session.renderTimer) {
       clearTimeout(session.renderTimer);
       session.renderTimer = null;
     }
     session.desiredRevision += 1;
-    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, 300);
+    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, doneDelayMs);
 
     if (event.success) {
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
