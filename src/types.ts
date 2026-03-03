@@ -2,7 +2,7 @@ export type StatusMode = "minimal" | "normal" | "detailed";
 export type StatusLayout = "tiny1";
 export type ProgressMode = "strict" | "predictive";
 
-export type RunPhase = "idle" | "queued" | "running" | "tool" | "done" | "error";
+export type RunPhase = "idle" | "queued" | "running" | "thinking" | "tool" | "sending" | "done" | "error";
 
 export type StatusbarPluginConfig = {
   enabledByDefault: boolean;
@@ -12,7 +12,6 @@ export type StatusbarPluginConfig = {
   throttleMs: number;
   minThrottleMs: number;
   liveTickMs: number;
-  // fix #20: split maxRetries — edits are ephemeral (0 retries), send/pin are critical (N retries)
   maxRetriesEdit: number;
   maxRetriesSend: number;
   autoHideSeconds: number;
@@ -44,6 +43,8 @@ export type ConversationPrefs = {
   historyRuns: number;
   avgDurationMs: number;
   avgSteps: number;
+  /** v2.0: per-tool average duration (ms) for ETA estimation */
+  toolAvgDurations: Record<string, number>;
   statusMessagesByThread: Record<string, StatusMessageRef>;
   updatedAt: number;
 };
@@ -78,6 +79,13 @@ export type SessionRuntime = {
   renderTimer: ReturnType<typeof setTimeout> | null;
   isFlushing: boolean;
   hideTimer: ReturnType<typeof setTimeout> | null;
+  maxRunTimer: ReturnType<typeof setTimeout> | null;
+  pendingDelivery: boolean;
+  pendingDeliveryTimer: ReturnType<typeof setTimeout> | null;
+  currentRunId: string | null;
+  isThinkingRun: boolean;
+  predictedSteps: number;
+  toolDurationsRaw: Map<string, number[]>;
   _predictedEndMs?: number;
   _etaSteps?: number;
 };

@@ -121,25 +121,36 @@ const TOOL_ICONS: Record<string, string> = {
 
 function resolveStatusIcon(session: SessionRuntime): string {
   switch (session.phase) {
-    case "queued":  return "🔜";
-    case "running": return "💭";
-    case "tool":    return (session.toolName && TOOL_ICONS[session.toolName]) || "🔧";
-    case "done":    return "🟢";
-    case "error":   return "❌";
-    default:        return "💤";
+    case "queued":   return "🔜";
+    case "running":  return "💭";
+    case "thinking": return "💭";
+    case "tool":     return (session.toolName && TOOL_ICONS[session.toolName]) || "🔧";
+    case "sending":  return "📤";
+    case "done":     return "🟢";
+    case "error":    return "❌";
+    default:         return "💤";
   }
 }
 
 function resolveFocusLabel(session: SessionRuntime): string {
   if (session.phase === "tool" && session.toolName) return session.toolName;
-  if (session.phase === "queued")  return "in coda";
-  if (session.phase === "running") return "thinking";
-  if (session.phase === "done")    return "done";
-  if (session.phase === "error")   return "errore";
+  if (session.phase === "queued")   return "in coda";
+  if (session.phase === "running")  return "thinking";
+  if (session.phase === "thinking") return "thinking";
+  if (session.phase === "sending")  return "sending";
+  if (session.phase === "done")     return "done";
+  if (session.phase === "error")    return "errore";
   return "idle";
 }
 
 // --- Progress estimation ---
+// v2.0: ETA helper per tool — usa durate storiche per stimare il tempo rimanente
+function avgToolDurationMs(toolName: string, toolAvgDurations: Record<string, number>): number {
+  return toolAvgDurations[toolName] ?? toolAvgDurations["_global"] ?? 5000;
+}
+
+// --- Progress estimation ---
+
 
 function resolveProgress(
   session: SessionRuntime,
@@ -157,7 +168,11 @@ function resolveProgress(
 
   const rawStepsDone = Math.max(0, session.currentRunSteps);
   const historyTotal = prefs.historyRuns > 0 ? Math.round(Math.max(1, prefs.avgSteps)) : 0;
-  const estimatedTotal = Math.max(historyTotal || FALLBACK_STEPS_TOTAL, rawStepsDone + 1);
+  // v2.0: usa predictedSteps da llm_output tool_use parse quando disponibile
+  const baseTotalSteps = session.predictedSteps > rawStepsDone
+    ? session.predictedSteps
+    : (historyTotal || FALLBACK_STEPS_TOTAL);
+  const estimatedTotal = Math.max(baseTotalSteps, rawStepsDone + 1);
   const stepRatio = estimatedTotal > 0 ? rawStepsDone / estimatedTotal : 0;
 
   // percentRatio per la barra: blended steps + time
@@ -234,7 +249,7 @@ function renderNormal(session: SessionRuntime, prefs: ConversationPrefs): string
   const progress = resolveProgress(session, prefs);
   const bar = renderProgressBar(progress.percent);
 
-  if (session.phase === "done" || session.phase === "error") {
+  if (session.phase === "done" || session.phase === "error" || session.phase === "sending") {
     return `${icon} ${focus} │ ${bar} │ ⏱${elapsed}`;
   }
 
@@ -306,7 +321,7 @@ function renderDoneButtons(prefs: ConversationPrefs): InlineButton[][] {
 
 export function renderStatusButtons(session: SessionRuntime, prefs: ConversationPrefs): InlineButton[][] | undefined {
   if (!prefs.buttonsEnabled) return undefined;
-  if (session.phase === "queued" || session.phase === "running" || session.phase === "tool") {
+  if (session.phase === "queued" || session.phase === "running" || session.phase === "thinking" || session.phase === "tool" || session.phase === "sending") {
     return renderActiveButtons(prefs);
   }
   if (session.phase === "done" || session.phase === "error") {

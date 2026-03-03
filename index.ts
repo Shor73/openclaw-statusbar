@@ -34,7 +34,7 @@ const SESSION_STALE_MS      =  2 * 60 * 60 * 1000;
 const PRUNE_INTERVAL_MS     =  5 * 60 * 1000;
 
 // Fasi "attive" che necessitano di tick periodici
-const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "tool"]);
+const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "thinking", "tool", "sending"]);
 
 class StatusbarRuntime {
   private readonly api: OpenClawPluginApi;
@@ -138,14 +138,20 @@ class StatusbarRuntime {
     this.api.on("before_tool_call", async (event, ctx) => {
       await this.onBeforeToolCall(event, ctx);
     });
-    this.api.on("after_tool_call", async (_event, ctx) => {
-      await this.onAfterToolCall(ctx);
+    this.api.on("after_tool_call", async (event, ctx) => {
+      await this.onAfterToolCall(event, ctx);
     });
     this.api.on("llm_output", async (event, ctx) => {
       await this.onLlmOutput(event, ctx);
     });
     this.api.on("agent_end", async (event, ctx) => {
       await this.onAgentEnd(event, ctx);
+    });
+    this.api.on("llm_input", async (event, ctx) => {
+      await this.onLlmInput(event, ctx);
+    });
+    this.api.on("message_sent", async (event, ctx) => {
+      await this.onMessageSent(event, ctx);
     });
   }
 
@@ -156,8 +162,10 @@ class StatusbarRuntime {
       this.liveTicker = null;
     }
     for (const s of this.sessions.values()) {
-      if (s.renderTimer) clearTimeout(s.renderTimer);
-      if (s.hideTimer)   clearTimeout(s.hideTimer);
+      if (s.renderTimer)           clearTimeout(s.renderTimer);
+      if (s.hideTimer)             clearTimeout(s.hideTimer);
+      if (s.maxRunTimer)           clearTimeout(s.maxRunTimer);
+      if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
     }
     this.sessions.clear();
   }
@@ -357,6 +365,13 @@ class StatusbarRuntime {
       renderTimer: null,
       isFlushing: false,
       hideTimer: null,
+      maxRunTimer: null,
+      pendingDelivery: false,
+      pendingDeliveryTimer: null,
+      currentRunId: null,
+      isThinkingRun: false,
+      predictedSteps: 0,
+      toolDurationsRaw: new Map(),
     };
   }
 
@@ -603,6 +618,15 @@ class StatusbarRuntime {
       clearTimeout(session.renderTimer);
       session.renderTimer = null;
     }
+    // v2.0: cancel pending delivery if we're starting a new turn
+    if (session.pendingDeliveryTimer) {
+      clearTimeout(session.pendingDeliveryTimer);
+      session.pendingDeliveryTimer = null;
+    }
+    session.pendingDelivery = false;
+    session.isThinkingRun = false;
+    session.currentRunId = null;
+    session.predictedSteps = 0;
     session.runNumber     += 1;
     session.queuedCount   = Math.max(0, session.queuedCount - 1);
     session.currentRunSteps = 0;
@@ -633,7 +657,7 @@ class StatusbarRuntime {
   }
 
   private async onBeforeToolCall(
-    event: { toolName: string },
+    event: { toolName: string; params?: Record<string, unknown> },
     ctx:   { sessionKey?: string },
   ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
@@ -654,7 +678,10 @@ class StatusbarRuntime {
     this.markDirty(session, true);
   }
 
-  private async onAfterToolCall(ctx: { sessionKey?: string }): Promise<void> {
+  private async onAfterToolCall(
+    event: { toolName: string; durationMs?: number },
+    ctx: { sessionKey?: string },
+  ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
@@ -668,8 +695,36 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     session.phase    = "running";
     session.toolName = null;
+    // v2.0: track per-tool duration for ETA
+    if (typeof event.durationMs === "number" && event.durationMs > 0) {
+      const toolKey = event.toolName ?? "unknown";
+      const samples = session.toolDurationsRaw.get(toolKey) ?? [];
+      samples.push(event.durationMs);
+      if (samples.length > 20) samples.shift();
+      session.toolDurationsRaw.set(toolKey, samples);
+    }
     // fix #21: cambio fase → flush urgente
     this.markDirty(session, true);
+  }
+
+  private async onLlmInput(
+    event: { runId: string; sessionId: string; provider: string; model: string; historyMessages: unknown[]; imagesCount: number },
+    ctx:   { sessionKey?: string },
+  ): Promise<void> {
+    const sessionKey = (ctx.sessionKey ?? "").trim();
+    if (!sessionKey) return;
+    const target = this.resolveTargetForSession(sessionKey);
+    if (!target) return;
+    const prefs = this.store.getConversation(target);
+    if (!prefs.enabled) return;
+
+    const session = this.getOrCreateSession(target);
+    session.currentRunId = event.runId;
+    session.isThinkingRun = true; // assume thinking until llm_output proves otherwise
+    if (session.phase === "running") {
+      session.phase = "thinking";
+      this.markDirty(session, true);
+    }
   }
 
   private async onLlmOutput(
@@ -696,15 +751,43 @@ class StatusbarRuntime {
     session.usageInput  = (session.usageInput  ?? 0) + newInput;
     session.usageOutput = (session.usageOutput ?? 0) + newOutput;
 
+    // v2.0: detect thinking vs response run via assistantTexts
+    const assistantTexts = (event as { assistantTexts?: unknown[] }).assistantTexts;
+    if (Array.isArray(assistantTexts) && assistantTexts.length > 0) {
+      const allText = assistantTexts.join('');
+      const hasToolUse = allText.includes('"type":"tool_use"') || allText.includes('"type": "tool_use"');
+      const hasVisibleText = assistantTexts.some((t) => {
+        if (typeof t !== "string") return false;
+        const trimmed = t.trim();
+        return trimmed.length > 10 && !trimmed.startsWith('{') && !trimmed.startsWith('<');
+      });
+
+      if (hasToolUse || hasVisibleText) {
+        session.isThinkingRun = false;
+        if (session.phase === "thinking") {
+          session.phase = "running";
+          this.markDirty(session, true);
+        }
+      }
+
+      // v2.0: extract predicted tool count from tool_use blocks
+      if (hasToolUse) {
+        const matches = allText.match(/"type"\s*:\s*"tool_use"/g);
+        const count = matches?.length ?? 0;
+        if (count > 0) {
+          session.predictedSteps = Math.max(session.predictedSteps, session.currentRunSteps + count);
+        }
+      }
+    }
+
     if (isFirstModel) {
-      // Primo LLM output: urgente, l'utente deve vedere il modello subito
       this.markDirty(session, true);
     } else if (prefs.mode === "detailed") {
       const nowMs          = Date.now();
       const usageIntervalMs = Math.max(this.config.minThrottleMs, this.config.liveTickMs);
       if (nowMs - session.lastUsageRenderAtMs >= usageIntervalMs) {
         session.lastUsageRenderAtMs = nowMs;
-        this.markDirty(session); // llm_output successivi: non urgente
+        this.markDirty(session);
       }
     }
   }
@@ -735,38 +818,68 @@ class StatusbarRuntime {
     }
 
     session.endedAtMs = nowMs;
-    session.phase     = event.success ? "done" : "error";
     session.toolName  = null;
     session.error     = event.error ?? null;
-    // fix #26 v3: delay fisso 1500ms per tutti i run.
-    // Permette al response turn (adaptive thinking) di cancellare il Done del thinking turn
-    // entro il window. Per risposte normali, 1.5s è impercettibile.
-    if (session.renderTimer) {
-      clearTimeout(session.renderTimer);
-      session.renderTimer = null;
-    }
-    session.desiredRevision += 1;
-    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, 500);
+
+    // v2.0: transition to "sending" (not "done") — wait for message_sent to confirm delivery
+    session.phase = event.success ? "sending" : "error";
+    session.pendingDelivery = event.success;
+
+    // Cancel any pending delay timer
+    if (session.renderTimer) { clearTimeout(session.renderTimer); session.renderTimer = null; }
+
+    // Show "sending" immediately
+    this.markDirty(session, true);
 
     if (event.success) {
+      // Safety timeout: if message_sent never fires (NO_REPLY, error), auto-done after 20s
+      if (session.pendingDeliveryTimer) { clearTimeout(session.pendingDeliveryTimer); }
+      session.pendingDeliveryTimer = setTimeout(() => {
+        session.pendingDeliveryTimer = null;
+        if (session.pendingDelivery && session.phase === "sending") {
+          session.pendingDelivery = false;
+          session.phase = "done";
+          this.markDirty(session, true);
+        }
+      }, 20_000);
+
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
       const completedSteps = Math.max(1, session.currentRunSteps);
+
+      // v2.0: merge per-tool durations into store (exponential moving average)
+      const toolSamples = session.toolDurationsRaw;
       this.store.updateConversation(target, (current) => {
         const n             = Math.max(0, current.historyRuns);
         const nextRuns      = n + 1;
         const nextAvgDurationMs =
-          n === 0
-            ? durationMs
-            : Math.round((current.avgDurationMs * n + durationMs) / nextRuns);
+          n === 0 ? durationMs : Math.round((current.avgDurationMs * n + durationMs) / nextRuns);
         const nextAvgSteps =
-          n === 0
-            ? completedSteps
-            : (current.avgSteps * n + completedSteps) / nextRuns;
+          n === 0 ? completedSteps : (current.avgSteps * n + completedSteps) / nextRuns;
+
+        // Merge tool durations: EMA with alpha=0.3
+        const nextToolAvg = { ...current.toolAvgDurations };
+        let totalDuration = 0;
+        let totalCount = 0;
+        for (const [toolName, samples] of toolSamples.entries()) {
+          if (samples.length === 0) continue;
+          const sampleAvg = samples.reduce((a, b) => a + b, 0) / samples.length;
+          totalDuration += sampleAvg;
+          totalCount += 1;
+          const prev = nextToolAvg[toolName];
+          nextToolAvg[toolName] = prev == null ? sampleAvg : Math.round(prev * 0.7 + sampleAvg * 0.3);
+        }
+        if (totalCount > 0) {
+          const globalAvg = totalDuration / totalCount;
+          const prevGlobal = nextToolAvg["_global"];
+          nextToolAvg["_global"] = prevGlobal == null ? Math.round(globalAvg) : Math.round(prevGlobal * 0.7 + globalAvg * 0.3);
+        }
+
         return {
           ...current,
           historyRuns:   nextRuns,
           avgDurationMs: nextAvgDurationMs,
           avgSteps:      Number.isFinite(nextAvgSteps) ? nextAvgSteps : completedSteps,
+          toolAvgDurations: nextToolAvg,
         };
       });
       await this.store.persist();
@@ -774,6 +887,32 @@ class StatusbarRuntime {
 
     if (session.queuedCount <= 0) {
       this.scheduleAutoHide(session);
+    }
+  }
+
+  private async onMessageSent(
+    event: { to: string; content: string; success: boolean; error?: string },
+    ctx:   { channelId: string; accountId?: string; conversationId?: string },
+  ): Promise<void> {
+    if (ctx.channelId !== "telegram") return;
+    const conversationId = ctx.conversationId;
+    if (!conversationId) return;
+
+    for (const session of this.sessions.values()) {
+      if (
+        session.target.conversationId === conversationId &&
+        session.target.accountId === ctx.accountId &&
+        session.pendingDelivery
+      ) {
+        if (session.pendingDeliveryTimer) {
+          clearTimeout(session.pendingDeliveryTimer);
+          session.pendingDeliveryTimer = null;
+        }
+        session.pendingDelivery = false;
+        session.phase = "done";
+        this.markDirty(session, true);
+        break;
+      }
     }
   }
 

@@ -29,6 +29,7 @@ function defaultConversation(
     historyRuns: 0,
     avgDurationMs: 0,
     avgSteps: 0,
+    toolAvgDurations: {},
     statusMessagesByThread: {},
     updatedAt: Date.now(),
   };

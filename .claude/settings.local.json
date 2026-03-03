@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push origin main)",
+      "Bash(git remote set-url origin https://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@github.com/Shor73/openclaw-statusbar.git && git push origin main)",
+      "Bash(git remote set-url origin git@github.com:Shor73/openclaw-statusbar.git)"
+    ]
+  }
+}
