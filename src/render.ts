@@ -341,10 +341,12 @@ export function renderStatusButtons(session: SessionRuntime, prefs: Conversation
 // --- Public API ---
 
 export function renderStatusText(session: SessionRuntime, prefs: ConversationPrefs): string {
+  let text: string;
   switch (prefs.mode) {
-    case "minimal":  return renderMinimal(session, prefs);
-    case "normal":   return renderNormal(session, prefs);
-    case "detailed": return renderDetailed(session, prefs);
-    default:         return renderNormal(session, prefs);
+    case "minimal":  text = renderMinimal(session, prefs); break;
+    case "normal":   text = renderNormal(session, prefs); break;
+    case "detailed": text = renderDetailed(session, prefs); break;
+    default:         text = renderNormal(session, prefs);
   }
+  return text + " ·v2";
 }
