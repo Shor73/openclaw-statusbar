@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.4] — 2026-03-03
+
+### 🔴 Critical fix
+
+- **#29 — Cross-instance lock** — OpenClaw loads the plugin twice (`[gateway]` and `[plugins]` namespaces) with separate in-memory Maps. Both instances firing `before_agent_start` created parallel sessions editing the same pinned message → flickering + zombie bars.
+  - Fix: `/tmp/statusbar-lock-<chatId>` file acts as shared lock between instances
+  - If `[gateway]` is handling a chat, `[plugins]` skips and vice versa
+  - Lock auto-expires after 90s as safety net
+
 ## [2.1.0] — 2026-03-03
 
 ### ✨ Reactive N/M▸ tool counter

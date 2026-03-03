@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi, ReplyPayload } from "openclaw/plugin-sdk";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { normalizePluginConfig } from "./src/config.js";
 import {
@@ -366,7 +366,12 @@ class StatusbarRuntime {
 
   // fix #9: separatore | invece di : — evita ambiguità con conversationId che contiene ":"
   private resolveRuntimeSessionKey(target: TelegramTarget): string {
-    return `${target.accountId}|${target.conversationId}|${target.threadId ?? "main"}`;
+    // fix #28: usa chatId+threadId come key, NON accountId
+    // accountId può essere "main" o "default" per lo stesso chat (hook da contesti diversi)
+    // → creava due sessioni parallele che editavano lo stesso messaggio → flickering
+    const key = `chat|${target.chatId}|${target.threadId ?? "main"}`;
+    this.api.logger.info(`statusbar: runtimeKey=${key} (account=${target.accountId} conv=${target.conversationId} thread=${target.threadId})`);
+    return key;
   }
 
   private createSessionState(params: { sessionKey: string; target: TelegramTarget }): SessionRuntime {
@@ -410,10 +415,14 @@ class StatusbarRuntime {
     const existing = this.sessions.get(runtimeSessionKey);
     if (existing) {
       existing.target = target;
+      // DEBUG v2.1.1: log when reusing session
+      this.api.logger.info(`statusbar: REUSE session ${runtimeSessionKey} phase=${existing.phase} started=${existing.startedAtMs}`);
       return existing;
     }
     const created = this.createSessionState({ sessionKey: runtimeSessionKey, target });
     this.sessions.set(runtimeSessionKey, created);
+    // DEBUG v2.1.1: log when creating new session
+    this.api.logger.info(`statusbar: CREATE session ${runtimeSessionKey}`);
     return created;
   }
 
@@ -632,6 +641,35 @@ class StatusbarRuntime {
     this.markDirty(session);
   }
 
+
+  // fix #29: cross-instance lock — due istanze del plugin ([gateway] e [plugins])
+  // hanno Maps in-memory separati, causando sessioni parallele sullo stesso chat.
+  // Usiamo un lock file su /tmp/ come segnale condiviso.
+  private lockPath(chatId: string | number): string {
+    return `/tmp/statusbar-lock-${chatId}`;
+  }
+  private acquireLock(chatId: string | number): boolean {
+    const path = this.lockPath(chatId);
+    try {
+      const now = Date.now();
+      if (existsSync(path)) {
+        const ts = parseInt(readFileSync(path, "utf8") || "0", 10);
+        if (!isNaN(ts) && now - ts < 90_000) {
+          // Lock attivo (< 90s), un'altra istanza sta gestendo questo chat
+          return false;
+        }
+      }
+      writeFileSync(path, now.toString(), "utf8");
+      return true;
+    } catch { return false; }
+  }
+  private releaseLock(chatId: string | number): void {
+    try { unlinkSync(this.lockPath(chatId)); } catch { /* ignore */ }
+  }
+  private touchLock(chatId: string | number): void {
+    try { writeFileSync(this.lockPath(chatId), Date.now().toString(), "utf8"); } catch { /* ignore */ }
+  }
+
   private async onBeforeAgentStart(ctx: { sessionKey?: string }): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
     if (!sessionKey) return;
@@ -643,7 +681,18 @@ class StatusbarRuntime {
     const prefs = this.store.getConversation(target);
     if (!prefs.enabled) return;
 
+    // fix #29: cross-instance lock — se un'altra istanza sta già gestendo questo chat, skip
     const session = this.getOrCreateSession(target);
+    if (session.phase === "running" || session.phase === "thinking" || session.phase === "tool") {
+      this.touchLock(target.chatId); // rinnova il lock
+      this.api.logger.info(`statusbar: SKIP before_agent_start (session active ${session.phase})`);
+      return;
+    }
+    if (!this.acquireLock(target.chatId)) {
+      this.api.logger.info(`statusbar: SKIP before_agent_start (lock held by other instance) chatId=${target.chatId}`);
+      return;
+    }
+    
     // fix #24: adaptive thinking fires two before_agent_start/agent_end cycles per user message.
     // Cancel any pending "done" render or hide timer so the user doesn't see a flash of "Done"
     // between the thinking turn and the response turn.
@@ -687,6 +736,8 @@ class StatusbarRuntime {
       session.maxRunTimer = null;
       if (session.phase === "running") {
         session.phase = "done";
+      this.releaseLock(session.target.chatId); // fix #29
+        this.releaseLock(session.target.chatId); // fix #29
         this.markDirty(session, true);
       }
     }, 60_000);
@@ -882,6 +933,7 @@ class StatusbarRuntime {
         if (session.pendingDelivery && session.phase === "sending") {
           session.pendingDelivery = false;
           session.phase = "done";
+          this.releaseLock(session.target.chatId); // fix #29
           this.markDirty(session, true);
         }
       }, 2_000);
