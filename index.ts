@@ -66,6 +66,8 @@ class StatusbarRuntime {
 
   async init(): Promise<void> {
     await this.store.load();
+    // Cleanup stale messages from previous gateway run — safe fire-and-forget
+    this.cleanupStaleMessages().catch(() => { /* intentionally ignored */ });
     this.startLiveTicker();
 
     this.api.registerCommand({
@@ -173,6 +175,23 @@ class StatusbarRuntime {
       if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
     }
     this.sessions.clear();
+  }
+
+  private async cleanupStaleMessages(): Promise<void> {
+    await new Promise<void>(r => setTimeout(r, 3000)); // wait for gateway to settle
+    const targets = this.store.getAllTargets();
+    for (const target of targets) {
+      try {
+        const ref = this.store.getStatusMessage(target);
+        if (!ref) continue;
+        const prefs = this.store.getConversation(target);
+        if (!prefs.enabled) continue;
+        const idleSession = this.createSessionState({ sessionKey: "init-cleanup", target });
+        idleSession.phase = "idle";
+        const text = renderStatusText(idleSession, prefs);
+        await this.transport.editStatusMessage({ target, message: ref, text, buttons: undefined });
+      } catch { /* message deleted or network error — ignore */ }
+    }
   }
 
   private startLiveTicker(): void {
