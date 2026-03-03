@@ -1,4 +1,6 @@
 import type { OpenClawPluginApi, ReplyPayload } from "openclaw/plugin-sdk";
+import { readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { normalizePluginConfig } from "./src/config.js";
 import {
   resolveSessionKeyFromMessageReceived,
@@ -119,6 +121,12 @@ class StatusbarRuntime {
       description: "Toggle inline buttons on/off",
       acceptsArgs: false,
       handler: async (ctx) => this.handleButtonsCommand(ctx),
+    });
+    this.api.registerCommand({
+      name: "streaming",
+      description: "Toggle message streaming on/off",
+      acceptsArgs: true,
+      handler: async (ctx) => this.handleStreamingCommand(ctx),
     });
 
     this.api.on("message_received", async (event, ctx) => {
@@ -584,6 +592,17 @@ class StatusbarRuntime {
     if (!prefs.enabled) return;
 
     const session = this.getOrCreateSession(target);
+    // fix #24: adaptive thinking fires two before_agent_start/agent_end cycles per user message.
+    // Cancel any pending "done" render or hide timer so the user doesn't see a flash of "Done"
+    // between the thinking turn and the response turn.
+    if (session.hideTimer) {
+      clearTimeout(session.hideTimer);
+      session.hideTimer = null;
+    }
+    if (session.renderTimer && (session.phase === "done" || session.phase === "idle" || session.phase === "error")) {
+      clearTimeout(session.renderTimer);
+      session.renderTimer = null;
+    }
     session.runNumber     += 1;
     session.queuedCount   = Math.max(0, session.queuedCount - 1);
     session.currentRunSteps = 0;
@@ -597,6 +616,18 @@ class StatusbarRuntime {
     session.usageInput    = null;
     session.usageOutput   = null;
     session.lastUsageRenderAtMs = 0;
+    // fix #25: safety net — se agent_end non scatta entro 180s, forza "done"
+    if (session.maxRunTimer) {
+      clearTimeout(session.maxRunTimer);
+      session.maxRunTimer = null;
+    }
+    session.maxRunTimer = setTimeout(() => {
+      session.maxRunTimer = null;
+      if (session.phase === "running") {
+        session.phase = "done";
+        this.markDirty(session, true);
+      }
+    }, 180_000);
     // fix #21: cambio fase → flush urgente, bypass throttle
     this.markDirty(session, true);
   }
@@ -740,6 +771,63 @@ class StatusbarRuntime {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Streaming command handler (native, instant — no AI needed)
+  private async handleStreamingCommand(ctx: {
+    channel: string; senderId?: string; accountId?: string;
+    to?: string; from?: string; messageThreadId?: number; args?: string;
+  }): Promise<ReplyPayload> {
+    const target = this.resolveTargetForCommand(ctx);
+    const configPath = process.env.HOME + "/.openclaw/openclaw.json";
+
+    // Read current streaming state
+    let currentStreaming = "off";
+    let config: Record<string, unknown> = {};
+    try {
+      config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      const tg = (config as Record<string, unknown>)?.channels as Record<string, unknown>;
+      const accounts = (tg?.telegram as Record<string, unknown>)?.accounts as Record<string, unknown>;
+      const main = accounts?.main as Record<string, unknown>;
+      currentStreaming = (main?.streaming as string) ?? "off";
+    } catch { /* ignore */ }
+
+    const args = (ctx.args ?? "").trim().toLowerCase();
+
+    // Apply change if args provided
+    if (args === "on" || args === "off") {
+      const newValue = args === "on" ? "partial" : "off";
+      try {
+        const tg = (config as Record<string, unknown>)?.channels as Record<string, unknown>;
+        const accounts = (tg?.telegram as Record<string, unknown>)?.accounts as Record<string, unknown>;
+        const main = accounts?.main as Record<string, unknown>;
+        if (main) main.streaming = newValue;
+        writeFileSync(configPath, JSON.stringify(config, null, 2));
+        currentStreaming = newValue;
+        // Reload gateway config
+        execSync("kill -USR1 $(pgrep -f 'openclaw.*gateway\|node.*openclaw' | head -1) 2>/dev/null || true", { shell: true });
+      } catch (err) {
+        this.api.logger.warn(`streaming command config write failed: ${String(err)}`);
+      }
+    }
+
+    const isOn = currentStreaming === "partial";
+    const statusText = isOn
+      ? "📡 Streaming messaggi\n\nStato: ✅ ON (partial)\nIl testo appare in tempo reale."
+      : "📡 Streaming messaggi\n\nStato: OFF\nLe risposte arrivano complete.";
+    const buttons: Array<Array<{ text: string; callback_data: string }>> = [[
+      { text: isOn ? "✅ ON" : "ON", callback_data: "/streaming on" },
+      { text: isOn ? "OFF" : "✅ OFF", callback_data: "/streaming off" },
+    ]];
+
+    if (target) {
+      try {
+        await this.transport.sendStatusMessage({ target, text: statusText, buttons });
+        return { text: "" };
+      } catch { /* fallback to text reply */ }
+    }
+
+    return { text: statusText };
+  }
+
   // Command handlers
   // ──────────────────────────────────────────────────────────────────────────
 
