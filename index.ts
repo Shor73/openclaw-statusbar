@@ -503,6 +503,9 @@ class StatusbarRuntime {
     const session = this.sessions.get(sessionKey);
     if (!session || session.isFlushing) return;
 
+    // fix #30: only the lock owner can edit the message — prevents dual-instance flickering
+    if (!this.isLockOwner(session.target.chatId)) return;
+
     const prefs = this.store.getConversation(session.target);
     if (!prefs.enabled) return;
 
