@@ -663,7 +663,8 @@ class StatusbarRuntime {
     session.pendingDelivery = false;
     session.isThinkingRun = false;
     session.currentRunId = null;
-    session.predictedSteps = 0;
+    // v2.1: seed predictedSteps from run history for immediate N/M▸ display
+    session.predictedSteps = prefs.historyRuns > 0 ? Math.round(Math.max(1, prefs.avgSteps)) : 0;
     session.runNumber     += 1;
     session.queuedCount   = Math.max(0, session.queuedCount - 1);
     session.currentRunSteps = 0;
@@ -709,6 +710,8 @@ class StatusbarRuntime {
 
     const session = this.getOrCreateSession(target);
     session.currentRunSteps += 1;
+    // v2.1: grow predicted to at least current step count (reactive counter)
+    session.predictedSteps = Math.max(session.predictedSteps, session.currentRunSteps);
     session.phase    = "tool";
     session.toolName = event.toolName;
     // fix #21: cambio fase → flush urgente

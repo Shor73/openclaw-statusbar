@@ -348,5 +348,5 @@ export function renderStatusText(session: SessionRuntime, prefs: ConversationPre
     case "detailed": text = renderDetailed(session, prefs); break;
     default:         text = renderNormal(session, prefs);
   }
-  return text + " ·v2";
+  return text + " ·v2.1";
 }
