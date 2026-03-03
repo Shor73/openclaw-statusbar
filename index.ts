@@ -783,7 +783,7 @@ class StatusbarRuntime {
     // v2.0: detect thinking vs response run via assistantTexts
     const assistantTexts = (event as { assistantTexts?: unknown[] }).assistantTexts;
     if (Array.isArray(assistantTexts) && assistantTexts.length > 0) {
-      const allText = assistantTexts.join('');
+      const allText = assistantTexts.map(t => typeof t === 'string' ? t : JSON.stringify(t)).join('');
       const hasToolUse = allText.includes('"type":"tool_use"') || allText.includes('"type": "tool_use"');
       const hasVisibleText = assistantTexts.some((t) => {
         if (typeof t !== "string") return false;
