@@ -271,4 +271,23 @@ export class StatusbarStore {
       threadId: null,
     };
   }
+
+  /** Return all TelegramTargets that have a stored statusbar message. */
+  getAllTargets(): TelegramTarget[] {
+    const results: TelegramTarget[] = [];
+    for (const [key, prefs] of Object.entries(this.data.conversations)) {
+      const sep = key.indexOf("::");
+      if (sep === -1) continue;
+      const accountId       = key.slice(0, sep);
+      const conversationId  = key.slice(sep + 2);
+      if (!conversationId.startsWith("telegram:")) continue;
+      const chatId = conversationId.slice("telegram:".length).trim();
+      if (!chatId) continue;
+      // check if any thread has a stored message ref
+      const hasMsgRef = Object.keys(prefs.statusMessagesByThread ?? {}).length > 0;
+      if (!hasMsgRef) continue;
+      results.push({ accountId, channelId: "telegram", conversationId, chatId, threadId: null });
+    }
+    return results;
+  }
 }

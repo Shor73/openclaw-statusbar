@@ -66,6 +66,9 @@ class StatusbarRuntime {
 
   async init(): Promise<void> {
     await this.store.load();
+    // fix: cleanup-on-init — push "idle" to any stale statusbar messages from previous gateway run.
+    // Prevents frozen "sending/running" states after gateway restarts.
+    void this.cleanupStaleMessages();
     this.startLiveTicker();
 
     this.api.registerCommand({
@@ -173,6 +176,24 @@ class StatusbarRuntime {
       if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
     }
     this.sessions.clear();
+  }
+
+  // On startup, send an idle update to all stored message refs so they don't stay frozen.
+  private async cleanupStaleMessages(): Promise<void> {
+    await new Promise(r => setTimeout(r, 2000)); // wait for gateway to settle
+    const targets = this.store.getAllTargets();
+    for (const target of targets) {
+      const ref = this.store.getStatusMessage(target);
+      if (!ref) continue;
+      const prefs = this.store.getConversation(target);
+      if (!prefs.enabled) continue;
+      try {
+        const idleSession = this.createSessionState({ sessionKey: "cleanup", target });
+        idleSession.phase = "idle";
+        const text = renderStatusText(idleSession, prefs);
+        await this.transport.editStatusMessage({ target, message: ref, text, buttons: undefined });
+      } catch { /* ignore — message may have been deleted */ }
+    }
   }
 
   private startLiveTicker(): void {
@@ -826,7 +847,9 @@ class StatusbarRuntime {
     session.toolName  = null;
     session.error     = event.error ?? null;
 
-    // v2.0: transition to "sending" (not "done") — wait for message_sent to confirm delivery
+    // v2.0: "sending" phase — shown briefly then auto-transitions to "done"
+    // message_sending/message_sent hooks don't fire for normal bot replies (different delivery path),
+    // so the timer IS the primary mechanism. 2s is enough to show the state visually.
     session.phase = event.success ? "sending" : "error";
     session.pendingDelivery = event.success;
 
@@ -837,7 +860,8 @@ class StatusbarRuntime {
     this.markDirty(session, true);
 
     if (event.success) {
-      // Safety timeout: if message_sent never fires (NO_REPLY, error), auto-done after 20s
+      // Primary: auto-transition to done after 2s (message_sending/sent unreliable for bot replies)
+      // message_sending/sent hooks act as bonus early triggers if they happen to fire
       if (session.pendingDeliveryTimer) { clearTimeout(session.pendingDeliveryTimer); }
       session.pendingDeliveryTimer = setTimeout(() => {
         session.pendingDeliveryTimer = null;
@@ -846,7 +870,7 @@ class StatusbarRuntime {
           session.phase = "done";
           this.markDirty(session, true);
         }
-      }, 20_000);
+      }, 2_000);
 
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
       const completedSteps = Math.max(1, session.currentRunSteps);
