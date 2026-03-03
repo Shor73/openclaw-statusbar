@@ -165,6 +165,14 @@ class StatusbarRuntime {
   }
 
   private async cleanupStaleMessages(): Promise<void> {
+    const flagPath = "/tmp/statusbar-cleanup-running";
+    try {
+      const fd = openSync(flagPath, "wx");
+      closeSync(fd);
+    } catch {
+      return; // another instance is already running cleanup
+    }
+    try {
     await new Promise<void>(r => setTimeout(r, 4000)); // wait for gateway to settle
     const targets = this.store.getAllTargets();
     for (const target of targets) {
@@ -190,6 +198,9 @@ class StatusbarRuntime {
         }
         // all other errors (network, etc.) — silently ignore
       }
+    }
+    } finally {
+      try { unlinkSync(flagPath); } catch { /* ignore */ }
     }
   }
 
