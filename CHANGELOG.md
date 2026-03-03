@@ -1,5 +1,60 @@
 # Changelog
 
+## [2.1.0] — 2026-03-03
+
+### ✨ Reactive N/M▸ tool counter
+
+- Counter now shows `N/M▸` during tool execution (e.g., `2/4▸`)
+- **Predicted total seeded from history** — immediately shows realistic M value based on avgSteps from past runs
+- **Reactive growth** — if actual tools exceed prediction, counter grows in real-time (`4/4▸ → 5/5▸ → 6/6▸`)
+- Works across all models (Claude, GLM, GPT)
+
+### ✨ Model version in output
+
+- `shortModel()` now extracts full version: `glm-5`, `glm-4.7`, `opus-4.6`, `sonnet-4.6`
+- No more generic "glm" — you see exactly which variant
+
+---
+
+## [2.0.0] — 2026-03-03
+
+**Complete v2.0 refactor** — thinking/sending phases, per-tool ETA, real tool count.
+
+### ✨ New phases
+
+- **`thinking`** — AI reasoning pass (no visible output, just internal thought)
+- **`sending`** — Agent done, waiting for message delivery
+- Phase transitions trigger urgent flush for immediate UI feedback
+
+### ✨ Per-tool ETA
+
+- Each tool tracks its own average duration
+- ETA adjusts based on which tool is running (exec takes longer than Read)
+- Historical data stored per tool in preferences
+
+### ✨ Real tool counter
+
+- Parses `llm_output` for `tool_use` blocks to predict total steps
+- Shows `N/M▸` during execution when prediction available
+- Falls back to `N▸` when no prediction
+
+### 🔴 Critical fixes
+
+- **#24** — Adaptive thinking double-cycle (memoryFlush embedded Pi agent)
+- **#25** — `maxRunTimer` safety net (60s)
+- **#26** — memoryFlush causing double status bar cycle → **disabled by default**
+- **isEditNotFound** — SDK path wraps errors without HTTP code, breaking detection
+- **cleanupStaleMessages** — now clears stale ref from store on "message to edit not found"
+- **sending stuck** — removed `"sending"` from `ACTIVE_PHASES`, 2s timer is sole mechanism
+
+### 🧹 Cleanup
+
+- Removed `message_sending`/`message_sent` hooks (don't fire for main AI replies)
+- `bestEffort` delivery mode for graceful degradation
+- Consolidated hook handlers, cleaner state machine
+
+---
+
 ## [1.1.0] — 2026-02-25
 
 ### ✨ Inline buttons
