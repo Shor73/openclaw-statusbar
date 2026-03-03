@@ -246,6 +246,32 @@ No guessing. Shows only what's confirmed.
 
 ---
 
+## ⚠️ Known issue — double status bar cycle
+
+If you see the bar flash **Done → Running → Done** on every message, the cause is OpenClaw's **automatic memory flush** feature. When context approaches the token threshold, OpenClaw silently runs an embedded Pi agent (compaction) that fires its own `before_agent_start` / `agent_end` events on the same session key — the statusbar interprets them as two separate runs.
+
+**Fix:** disable automatic memory flush in your `openclaw.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "memoryFlush": {
+          "enabled": false
+        }
+      }
+    }
+  }
+}
+```
+
+Then restart the gateway. Manual memory management (heartbeat, cron) continues to work normally.
+
+> This is an OpenClaw core issue — the embedded Pi agent reuses the main session key. A proper fix requires OpenClaw to use an isolated session key for compaction runs.
+
+---
+
 ## How it works
 
 OpenClaw emits lifecycle events for each agent run. This plugin hooks into:

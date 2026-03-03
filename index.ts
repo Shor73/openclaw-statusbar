@@ -746,7 +746,7 @@ class StatusbarRuntime {
       session.renderTimer = null;
     }
     session.desiredRevision += 1;
-    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, 3_000);
+    session.renderTimer = setTimeout(() => { void this.flushSession(session.sessionKey); }, 500);
 
     if (event.success) {
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
