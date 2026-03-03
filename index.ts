@@ -26,12 +26,6 @@ const RE_AGENT_MAIN = /^agent:([^:]+):main$/;
 type SessionTargetRef = { target: TelegramTarget; seenAtMs: number };
 type SenderTargetRef  = { target: TelegramTarget; seenAtMs: number };
 
-// fix #30: callback data whitelist — reject unknown callback_data values
-const VALID_CALLBACKS = new Set([
-  "/sbon", "/sboff", "/sbmode normal", "/sbmode detailed", "/sbmode minimal",
-  "/sbpin", "/sbunpin", "/sbstatus", "/sbreset", "/sbsettings", "/sbbuttons",
-]);
-
 const SESSION_TARGET_TTL_MS = 30 * 60 * 1000;
 // fix #1: rimuove sessioni completate dopo 2h per evitare memory leak
 const SESSION_STALE_MS      =  2 * 60 * 60 * 1000;
@@ -639,7 +633,6 @@ class StatusbarRuntime {
         session.renderedRevision        = 0;
       }
 
-      session.phase         = "queued";
       session.startedAtMs   = Date.now();
       session.endedAtMs     = null;
       session.currentRunSteps = 0;
@@ -650,6 +643,7 @@ class StatusbarRuntime {
       session.usageInput    = null;
       session.usageOutput   = null;
       session.lastUsageRenderAtMs = 0;
+      this.transitionPhase(session, "queued", { urgent: false });
     }
 
     session.queuedCount = Math.max(0, session.queuedCount) + 1;
@@ -1025,14 +1019,13 @@ class StatusbarRuntime {
     this.store.schedulePersist();
 
     const session = this.getOrCreateSession(target);
-    session.phase           = "idle";
     session.queuedCount     = 0;
     session.currentRunSteps = 0;
     session.startedAtMs     = Date.now();
     session.endedAtMs       = Date.now();
     session.toolName        = null;
     session.error           = null;
-    this.markDirty(session);
+    this.transitionPhase(session, "idle", { urgent: false });
     await this.flushSession(session.sessionKey);
     const ref = this.store.getStatusMessage(target);
 
@@ -1146,14 +1139,13 @@ class StatusbarRuntime {
 
     if (prefs.enabled) {
       const session = this.getOrCreateSession(target);
-      session.phase           = "idle";
       session.queuedCount     = 0;
       session.currentRunSteps = 0;
       session.startedAtMs     = Date.now();
       session.endedAtMs       = Date.now();
       session.toolName        = null;
       session.error           = null;
-      this.markDirty(session);
+      this.transitionPhase(session, "idle", { urgent: false });
       await this.flushSession(session.sessionKey);
     }
 

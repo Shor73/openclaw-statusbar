@@ -58,21 +58,6 @@ function formatTokens(input: number | null, output: number | null): string | nul
 const DEFAULT_MODEL_LABEL = "opus-4.6";
 const DEFAULT_THINKING = "high";
 
-// Superscript Unicode map
-const SUPERSCRIPT: Record<string, string> = {
-  "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ", "f": "ᶠ", "g": "ᵍ",
-  "h": "ʰ", "i": "ⁱ", "j": "ʲ", "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ",
-  "o": "ᵒ", "p": "ᵖ", "q": "q", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ",
-  "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
-  "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵",
-  "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
-  ".": "·", "-": "⁻", "/": "ᐟ",
-};
-
-function toSuperscript(text: string): string {
-  return [...text.toLowerCase()].map(c => SUPERSCRIPT[c] ?? c).join("");
-}
-
 const MODEL_PATTERNS: [RegExp, string][] = [
   [/glm[-_]?(\d[\d.]*)/, "glm"],
   [/opus[-_]?(\d[\d.]*)/, "opus"],
@@ -152,12 +137,6 @@ function resolveFocusLabel(session: SessionRuntime): string {
 
 // --- Private ETA state (render-local, not on SessionRuntime) ---
 const etaState = new Map<string, { predictedEndMs: number; etaSteps: number }>();
-
-// --- Progress estimation ---
-// v2.0: ETA helper per tool — usa durate storiche per stimare il tempo rimanente
-function avgToolDurationMs(toolName: string, toolAvgDurations: Record<string, number>): number {
-  return toolAvgDurations[toolName] ?? toolAvgDurations["_global"] ?? 5000;
-}
 
 // --- Progress estimation ---
 
@@ -289,7 +268,7 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const bar = renderProgressBar(progress.percent);
 
   if (session.phase === "done" || session.phase === "error") {
-    return `${icon} ${focus} │${modelTag} │ ${elapsed}s${tokTag}`;
+    return `${icon} ${focus} │${modelTag} │ ${elapsed}${tokTag}`;
   }
 
   const pct = progress.percent != null ? `${progress.percent}%` : "";
