@@ -818,6 +818,15 @@ class StatusbarRuntime {
       samples.push(event.durationMs);
       if (samples.length > 20) samples.shift();
       session.toolDurationsRaw.set(toolKey, samples);
+      // Cap at 50 keys — remove least-sampled entries
+      if (session.toolDurationsRaw.size > 50) {
+        let minKey = "";
+        let minCount = Infinity;
+        for (const [k, v] of session.toolDurationsRaw) {
+          if (v.length < minCount) { minCount = v.length; minKey = k; }
+        }
+        if (minKey) session.toolDurationsRaw.delete(minKey);
+      }
     }
   }
 
