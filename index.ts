@@ -66,9 +66,6 @@ class StatusbarRuntime {
 
   async init(): Promise<void> {
     await this.store.load();
-    // fix: cleanup-on-init — push "idle" to any stale statusbar messages from previous gateway run.
-    // Prevents frozen "sending/running" states after gateway restarts.
-    void this.cleanupStaleMessages();
     this.startLiveTicker();
 
     this.api.registerCommand({
@@ -176,24 +173,6 @@ class StatusbarRuntime {
       if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
     }
     this.sessions.clear();
-  }
-
-  // On startup, send an idle update to all stored message refs so they don't stay frozen.
-  private async cleanupStaleMessages(): Promise<void> {
-    await new Promise(r => setTimeout(r, 2000)); // wait for gateway to settle
-    const targets = this.store.getAllTargets();
-    for (const target of targets) {
-      const ref = this.store.getStatusMessage(target);
-      if (!ref) continue;
-      const prefs = this.store.getConversation(target);
-      if (!prefs.enabled) continue;
-      try {
-        const idleSession = this.createSessionState({ sessionKey: "cleanup", target });
-        idleSession.phase = "idle";
-        const text = renderStatusText(idleSession, prefs);
-        await this.transport.editStatusMessage({ target, message: ref, text, buttons: undefined });
-      } catch { /* ignore — message may have been deleted */ }
-    }
   }
 
   private startLiveTicker(): void {
