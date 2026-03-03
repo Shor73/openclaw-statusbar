@@ -221,6 +221,12 @@ class StatusbarRuntime {
     const cadenceMs  = Math.max(this.config.liveTickMs, this.config.minThrottleMs);
 
     for (const session of this.sessions.values()) {
+      // fix #31: idle detection — if no hook for 30s during active phase, force done
+      if (ACTIVE_PHASES.has(session.phase) && nowMs - session.lastHookAtMs > 30_000) {
+        this.transitionPhase(session, "done", { urgent: true });
+        if (session.queuedCount <= 0) this.scheduleAutoHide(session);
+        continue;
+      }
       // 1. check economico: fase inattiva → skip immediato
       if (!ACTIVE_PHASES.has(session.phase)) continue;
       // 2. check economico: throttle locale → skip immediato
@@ -411,6 +417,7 @@ class StatusbarRuntime {
       predictedSteps: 0,
       toolDurationsRaw: new Map(),
       thinkingLevel: null,
+      lastHookAtMs: Date.now(),
     };
   }
 
@@ -427,7 +434,8 @@ class StatusbarRuntime {
   }
 
   private transitionPhase(session: SessionRuntime, newPhase: RunPhase, opts?: { urgent?: boolean; toolName?: string }): void {
-    if (session.phase === newPhase && newPhase !== "tool") return; // skip no-op
+    if (session.phase === newPhase && newPhase !== "tool") return;
+    session.lastHookAtMs = Date.now(); // skip no-op
     session.phase = newPhase;
     if (opts?.toolName !== undefined) session.toolName = opts.toolName;
     if (newPhase === "done" || newPhase === "error") {
@@ -774,7 +782,7 @@ class StatusbarRuntime {
       if (session.phase === "running") {
         this.transitionPhase(session, "done");
       }
-    }, 300_000);
+    }, 90_000);
     this.transitionPhase(session, "running");
   }
 

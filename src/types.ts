@@ -87,6 +87,7 @@ export type SessionRuntime = {
   predictedSteps: number;
   toolDurationsRaw: Map<string, number[]>;
   thinkingLevel: string | null;
+  lastHookAtMs: number;
 };
 
 export type TelegramInlineButtons = Array<Array<{ text: string; callback_data: string }>>;
