@@ -418,6 +418,17 @@ class StatusbarRuntime {
     return created;
   }
 
+  private transitionPhase(session: SessionRuntime, newPhase: RunPhase, opts?: { urgent?: boolean; toolName?: string }): void {
+    if (session.phase === newPhase && newPhase !== "tool") return; // skip no-op
+    session.phase = newPhase;
+    if (opts?.toolName !== undefined) session.toolName = opts.toolName;
+    if (newPhase === "done" || newPhase === "error") {
+      session.endedAtMs = Date.now();
+      this.releaseLock(session.target.chatId);
+    }
+    this.markDirty(session, opts?.urgent ?? true);
+  }
+
   // fix #21: parametro urgent — i cambi di fase bypassano il throttle per fluidità immediata
   private markDirty(session: SessionRuntime, urgent = false): void {
     session.desiredRevision += 1;
@@ -465,11 +476,10 @@ class StatusbarRuntime {
       session.hideTimer = null;
       const current = this.sessions.get(session.sessionKey);
       if (!current) return;
-      current.phase = "idle";
       current.toolName = null;
       current.error = null;
       current.currentRunSteps = 0;
-      this.markDirty(current);
+      this.transitionPhase(current, "idle", { urgent: false });
     }, this.config.autoHideSeconds * 1000);
   }
 
@@ -722,7 +732,6 @@ class StatusbarRuntime {
     session.runNumber     += 1;
     session.queuedCount   = Math.max(0, session.queuedCount - 1);
     session.currentRunSteps = 0;
-    session.phase         = "running";
     session.startedAtMs   = Date.now();
     session.endedAtMs     = null;
     session.toolName      = null;
@@ -732,7 +741,7 @@ class StatusbarRuntime {
     session.usageInput    = null;
     session.usageOutput   = null;
     session.lastUsageRenderAtMs = 0;
-    // fix #25: safety net — se agent_end non scatta entro 180s, forza "done"
+    // fix #25: safety net — se agent_end non scatta entro 300s, forza "done"
     if (session.maxRunTimer) {
       clearTimeout(session.maxRunTimer);
       session.maxRunTimer = null;
@@ -740,13 +749,10 @@ class StatusbarRuntime {
     session.maxRunTimer = setTimeout(() => {
       session.maxRunTimer = null;
       if (session.phase === "running") {
-        session.phase = "done";
-        this.releaseLock(session.target.chatId);
-        this.markDirty(session, true);
+        this.transitionPhase(session, "done");
       }
     }, 300_000);
-    // fix #21: cambio fase → flush urgente, bypass throttle
-    this.markDirty(session, true);
+    this.transitionPhase(session, "running");
   }
 
   private async onBeforeToolCall(
@@ -767,10 +773,7 @@ class StatusbarRuntime {
     session.currentRunSteps += 1;
     // v2.1: grow predicted to at least current step count (reactive counter)
     session.predictedSteps = Math.max(session.predictedSteps, session.currentRunSteps);
-    session.phase    = "tool";
-    session.toolName = event.toolName;
-    // fix #21: cambio fase → flush urgente
-    this.markDirty(session, true);
+    this.transitionPhase(session, "tool", { toolName: event.toolName });
   }
 
   private async onAfterToolCall(
@@ -788,8 +791,8 @@ class StatusbarRuntime {
     if (!prefs.enabled) return;
 
     const session = this.getOrCreateSession(target);
-    session.phase    = "running";
     session.toolName = null;
+    this.transitionPhase(session, "running");
     // v2.0: track per-tool duration for ETA
     if (typeof event.durationMs === "number" && event.durationMs > 0) {
       const toolKey = event.toolName ?? "unknown";
@@ -798,8 +801,6 @@ class StatusbarRuntime {
       if (samples.length > 20) samples.shift();
       session.toolDurationsRaw.set(toolKey, samples);
     }
-    // fix #21: cambio fase → flush urgente
-    this.markDirty(session, true);
   }
 
   private async onLlmInput(
@@ -817,8 +818,7 @@ class StatusbarRuntime {
     session.currentRunId = event.runId;
     session.isThinkingRun = true; // assume thinking until llm_output proves otherwise
     if (session.phase === "running") {
-      session.phase = "thinking";
-      this.markDirty(session, true);
+      this.transitionPhase(session, "thinking");
     }
   }
 
@@ -860,8 +860,7 @@ class StatusbarRuntime {
       if (hasToolUse || hasVisibleText) {
         session.isThinkingRun = false;
         if (session.phase === "thinking") {
-          session.phase = "running";
-          this.markDirty(session, true);
+          this.transitionPhase(session, "running");
         }
       }
 
@@ -916,17 +915,13 @@ class StatusbarRuntime {
     session.toolName  = null;
     session.error     = event.error ?? null;
 
-    // v2.0: "sending" phase — shown briefly then auto-transitions to "done"
-    // message_sending/message_sent hooks don't fire for normal bot replies (different delivery path),
-    // so the timer IS the primary mechanism. 2s is enough to show the state visually.
-    session.phase = event.success ? "sending" : "error";
     session.pendingDelivery = event.success;
 
     // Cancel any pending delay timer
     if (session.renderTimer) { clearTimeout(session.renderTimer); session.renderTimer = null; }
 
-    // Show "sending" immediately
-    this.markDirty(session, true);
+    // v2.0: "sending" phase — shown briefly then auto-transitions to "done"
+    this.transitionPhase(session, event.success ? "sending" : "error");
 
     if (event.success) {
       // Primary: auto-transition to done after 2s (message_sending/sent unreliable for bot replies)
@@ -936,9 +931,7 @@ class StatusbarRuntime {
         session.pendingDeliveryTimer = null;
         if (session.pendingDelivery && session.phase === "sending") {
           session.pendingDelivery = false;
-          session.phase = "done";
-          this.releaseLock(session.target.chatId); // fix #29
-          this.markDirty(session, true);
+          this.transitionPhase(session, "done");
         }
       }, 2_000);
 
