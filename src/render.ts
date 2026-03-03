@@ -76,6 +76,12 @@ function toSuperscript(text: string): string {
 function shortModel(model: string | null, fallback = false): string | null {
   if (!model) return fallback ? DEFAULT_MODEL_LABEL : null;
   const m = model.toLowerCase();
+  // GLM con versione (es. zai/glm-5, zai/glm-4.7-flash)
+  if (m.includes("glm")) {
+    const match = m.match(/glm[-_]?(\d+(?:\.\d+)?(?:-\w+)?)/);
+    if (match) return `glm-${match[1]}`;
+    return "glm";
+  }
   if (m.includes("opus-4-6") || m.includes("opus-4.6"))     return "opus-4.6";
   if (m.includes("opus"))     return "opus";
   if (m.includes("sonnet-4-6") || m.includes("sonnet-4.6")) return "sonnet-4.6";
@@ -85,7 +91,6 @@ function shortModel(model: string | null, fallback = false): string | null {
   if (m.includes("gpt-5"))    return "gpt-5";
   if (m.includes("gpt-4"))    return "gpt-4";
   if (m.includes("minimax"))  return "minimax";
-  if (m.includes("glm"))      return "glm";
   if (m.includes("gemini"))   return "gemini";
   if (m.includes("deepseek")) return "deepseek";
   const parts = model.split(/[/\-]/);
@@ -348,5 +353,5 @@ export function renderStatusText(session: SessionRuntime, prefs: ConversationPre
     case "detailed": text = renderDetailed(session, prefs); break;
     default:         text = renderNormal(session, prefs);
   }
-  return text + " ·v2.1";
+  return text;
 }
