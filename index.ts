@@ -152,14 +152,8 @@ class StatusbarRuntime {
     this.api.on("llm_input", async (event, ctx) => {
       await this.onLlmInput(event, ctx);
     });
-    // message_sending fires just BEFORE the Telegram API call — fastest trigger for "done"
-    this.api.on("message_sending", async (event, ctx) => {
-      await this.onMessageDelivering(event, ctx);
-    });
-    // message_sent fires after HTTP confirmation — fallback in case message_sending is unreliable
-    this.api.on("message_sent", async (event, ctx) => {
-      await this.onMessageDelivering(event, ctx);
-    });
+    // Note: message_sending/message_sent hooks NOT used — they fire for statusbar edits too,
+    // causing premature done transitions. 2s pendingDeliveryTimer is the sole mechanism.
   }
 
   // fix #2: teardown esplicito — ferma ticker e libera tutti i timer
@@ -178,7 +172,7 @@ class StatusbarRuntime {
   }
 
   private async cleanupStaleMessages(): Promise<void> {
-    await new Promise<void>(r => setTimeout(r, 3000)); // wait for gateway to settle
+    await new Promise<void>(r => setTimeout(r, 4000)); // wait for gateway to settle
     const targets = this.store.getAllTargets();
     for (const target of targets) {
       try {
@@ -186,6 +180,10 @@ class StatusbarRuntime {
         if (!ref) continue;
         const prefs = this.store.getConversation(target);
         if (!prefs.enabled) continue;
+        // Skip targets that already have an active session (don't overwrite live runs)
+        const runtimeKey = this.resolveRuntimeSessionKey(target);
+        const existingSession = this.sessions.get(runtimeKey);
+        if (existingSession && ACTIVE_PHASES.has(existingSession.phase)) continue;
         const idleSession = this.createSessionState({ sessionKey: "init-cleanup", target });
         idleSession.phase = "idle";
         const text = renderStatusText(idleSession, prefs);
@@ -917,34 +915,7 @@ class StatusbarRuntime {
     }
   }
 
-    // Handles both message_sending and message_sent — whichever fires first wins.
-  // message_sending is faster (fires before HTTP call) so "done" appears near delivery time.
-  private async onMessageDelivering(
-    _event: { to: string; content: string },
-    ctx:    { channelId: string; accountId?: string; conversationId?: string },
-  ): Promise<void> {
-    if (ctx.channelId !== "telegram") return;
-    const conversationId = ctx.conversationId;
-    if (!conversationId) return;
-
-    for (const session of this.sessions.values()) {
-      if (
-        session.target.conversationId === conversationId &&
-        session.target.accountId === ctx.accountId &&
-        session.pendingDelivery
-      ) {
-        if (session.pendingDeliveryTimer) {
-          clearTimeout(session.pendingDeliveryTimer);
-          session.pendingDeliveryTimer = null;
-        }
-        session.pendingDelivery = false;
-        session.phase = "done";
-        this.markDirty(session, true);
-        break;
-      }
-    }
-  }
-
+  
   // ──────────────────────────────────────────────────────────────────────────
   // Streaming command handler (native, instant — no AI needed)
   private async handleStreamingCommand(ctx: {
