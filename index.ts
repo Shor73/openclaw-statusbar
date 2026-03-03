@@ -161,6 +161,7 @@ class StatusbarRuntime {
       if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
     }
     this.sessions.clear();
+    this.store.flushPersist();
   }
 
   private async cleanupStaleMessages(): Promise<void> {
@@ -185,7 +186,7 @@ class StatusbarRuntime {
         const msg = err instanceof Error ? err.message : String(err);
         if (/message to edit not found/i.test(msg)) {
           this.store.setStatusMessage(target, null);
-          await this.store.persist().catch(() => {});
+          this.store.schedulePersist();
         }
         // all other errors (network, etc.) — silently ignore
       }
@@ -527,7 +528,7 @@ class StatusbarRuntime {
         } catch (err) {
           if (err instanceof TelegramApiError && err.isEditNotFound()) {
             this.store.setStatusMessage(session.target, null);
-            await this.store.persist();
+            this.store.schedulePersist();
             nextRef = null;
           } else if (err instanceof TelegramApiError && err.isRateLimit()) {
             // fix #17: 429 già gestito dal transport (circuit breaker aggiornato e loggato)
@@ -620,7 +621,7 @@ class StatusbarRuntime {
       const shouldCreateNewMessage = this.config.newMessagePerRun && !prefs.pinMode;
       if (shouldCreateNewMessage) {
         this.store.setStatusMessage(target, null);
-        await this.store.persist();
+        this.store.schedulePersist();
         session.lastRenderedText        = null;
         session.lastRenderedControlsKey = null;
         session.renderedRevision        = 0;
@@ -974,7 +975,7 @@ class StatusbarRuntime {
           toolAvgDurations: nextToolAvg,
         };
       });
-      await this.store.persist();
+      this.store.schedulePersist();
     }
 
     if (session.queuedCount <= 0) {
@@ -998,7 +999,7 @@ class StatusbarRuntime {
     this.store.setStatusMessage(target, null);
     this.trackSessionTarget("agent:main:main", target);
     this.trackSessionTarget(`agent:${target.accountId}:main`, target);
-    await this.store.persist();
+    this.store.schedulePersist();
 
     const session = this.getOrCreateSession(target);
     session.phase           = "idle";
@@ -1026,7 +1027,7 @@ class StatusbarRuntime {
       return { text: "Statusbar: unable to resolve this chat. Send one normal message in this chat, then run /sboff again." };
     }
     this.store.updateConversation(target, (c) => ({ ...c, enabled: false }));
-    await this.store.persist();
+    this.store.schedulePersist();
     return { text: "Statusbar disabled." };
   }
 
@@ -1052,7 +1053,7 @@ class StatusbarRuntime {
     }
 
     const updated = this.store.updateConversation(target, (c) => ({ ...c, mode: nextMode, enabled: true }));
-    await this.store.persist();
+    this.store.schedulePersist();
 
     for (const session of this.sessions.values()) {
       if (
@@ -1118,7 +1119,7 @@ class StatusbarRuntime {
 
     const prefs = this.store.getConversation(target);
     this.store.setStatusMessage(target, null);
-    await this.store.persist();
+    this.store.schedulePersist();
 
     if (prefs.enabled) {
       const session = this.getOrCreateSession(target);
@@ -1149,7 +1150,7 @@ class StatusbarRuntime {
     }
 
     this.store.updateConversation(target, (c) => ({ ...c, enabled: true, pinMode: true }));
-    await this.store.persist();
+    this.store.schedulePersist();
 
     const session = this.getOrCreateSession(target);
     this.markDirty(session);
@@ -1188,7 +1189,7 @@ class StatusbarRuntime {
     }
 
     this.store.updateConversation(target, (c) => ({ ...c, pinMode: false }));
-    await this.store.persist();
+    this.store.schedulePersist();
 
     return {
       text: `Statusbar unpinned.\nTarget: account=${target.accountId} chat=${target.chatId} thread=${target.threadId ?? "main"}`,
@@ -1242,7 +1243,7 @@ class StatusbarRuntime {
     const prefs = this.store.getConversation(target);
     const next = !prefs.buttonsEnabled;
     this.store.updateConversation(target, (current) => ({ ...current, buttonsEnabled: next }));
-    await this.store.persist();
+    this.store.schedulePersist();
 
     // Flush per aggiornare subito (rimuovere/aggiungere bottoni)
     for (const session of this.sessions.values()) {

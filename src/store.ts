@@ -134,6 +134,8 @@ export class StatusbarStore {
 
   // fix #3: write queue — serializza le scritture su disco per evitare corruzione
   private persistQueue: Promise<void> = Promise.resolve();
+  private persistDirty = false;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(params: {
     stateDir: string;
@@ -237,6 +239,29 @@ export class StatusbarStore {
       }),
     );
     return this.persistQueue;
+  }
+
+  schedulePersist(): void {
+    this.persistDirty = true;
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      if (this.persistDirty) {
+        this.persistDirty = false;
+        void this.persist();
+      }
+    }, 5_000);
+  }
+
+  flushPersist(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    if (this.persistDirty) {
+      this.persistDirty = false;
+      void this.persist();
+    }
   }
 
   findMostRecentTargetForAccount(accountId: string): TelegramTarget | null {
