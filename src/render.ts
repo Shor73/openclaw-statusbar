@@ -73,28 +73,30 @@ function toSuperscript(text: string): string {
   return [...text.toLowerCase()].map(c => SUPERSCRIPT[c] ?? c).join("");
 }
 
+const MODEL_PATTERNS: [RegExp, string][] = [
+  [/glm[-_]?(\d[\d.]*)/, "glm"],
+  [/opus[-_]?(\d[\d.]*)/, "opus"],
+  [/sonnet[-_]?(\d[\d.]*)/, "sonnet"],
+  [/haiku[-_]?(\d[\d.]*)/, "haiku"],
+  [/gpt[-_]?(\d[\d.]*)/, "gpt"],
+  [/llama[-_]?(\d[\d.]*)/, "llama"],
+  [/minimax/, "minimax"],
+  [/gemini[-_]?(\d[\d.]*)/, "gemini"],
+  [/deepseek/, "deepseek"],
+];
+
 function shortModel(model: string | null, fallback = false): string | null {
   if (!model) return fallback ? DEFAULT_MODEL_LABEL : null;
-  const m = model.toLowerCase();
-  // GLM con versione (es. zai/glm-5, zai/glm-4.7-flash)
-  if (m.includes("glm")) {
-    const match = m.match(/glm[-_]?(\d+(?:\.\d+)?(?:-\w+)?)/);
-    if (match) return `glm-${match[1]}`;
-    return "glm";
+  const m = model.toLowerCase().replace(/-/g, "-"); // normalize
+  for (const [pattern, label] of MODEL_PATTERNS) {
+    const match = m.match(pattern);
+    if (match) {
+      const version = match[1] ? `-${match[1]}` : "";
+      return `${label}${version}`;
+    }
   }
-  if (m.includes("opus-4-6") || m.includes("opus-4.6"))     return "opus-4.6";
-  if (m.includes("opus"))     return "opus";
-  if (m.includes("sonnet-4-6") || m.includes("sonnet-4.6")) return "sonnet-4.6";
-  if (m.includes("sonnet"))   return "sonnet";
-  if (m.includes("haiku-4-5") || m.includes("haiku-4.5"))   return "haiku-4.5";
-  if (m.includes("haiku"))    return "haiku";
-  if (m.includes("gpt-5"))    return "gpt-5";
-  if (m.includes("gpt-4"))    return "gpt-4";
-  if (m.includes("minimax"))  return "minimax";
-  if (m.includes("gemini"))   return "gemini";
-  if (m.includes("deepseek")) return "deepseek";
-  const parts = model.split(/[/\-]/);
-  return parts[parts.length - 1]?.slice(0, 10) ?? model.slice(0, 10);
+  // fallback: last segment
+  return m.split("/").pop()?.split("-").slice(0, 2).join("-") ?? m;
 }
 
 function getElapsedMs(session: SessionRuntime): number {
@@ -148,6 +150,9 @@ function resolveFocusLabel(session: SessionRuntime): string {
   return "idle";
 }
 
+// --- Private ETA state (render-local, not on SessionRuntime) ---
+const etaState = new Map<string, { predictedEndMs: number; etaSteps: number }>();
+
 // --- Progress estimation ---
 // v2.0: ETA helper per tool — usa durate storiche per stimare il tempo rimanente
 function avgToolDurationMs(toolName: string, toolAvgDurations: Record<string, number>): number {
@@ -165,8 +170,7 @@ function resolveProgress(
   const elapsedMs = getElapsedMs(session);
 
   if (isFinal) {
-    session._predictedEndMs = undefined;
-    session._etaSteps = undefined;
+    etaState.delete(session.sessionKey);
     return { percent: 100, etaMs: 0 };
   }
   if (prefs.progressMode === "strict") return { percent: null, etaMs: null };
@@ -194,8 +198,9 @@ function resolveProgress(
   let etaMs: number | null = null;
   if (elapsedMs >= ETA_MIN_ELAPSED_MS) {
     const now = Date.now();
-    const prevSteps = session._etaSteps as number | undefined;
-    const predictedEnd = session._predictedEndMs as number | undefined;
+    const prev = etaState.get(session.sessionKey);
+    const prevSteps = prev?.etaSteps;
+    const predictedEnd = prev?.predictedEndMs;
     const stepsRemaining = Math.max(1, estimatedTotal - rawStepsDone);
 
     // Velocità media di uno step basata su questo run
@@ -206,17 +211,14 @@ function resolveProgress(
     if (prevSteps !== rawStepsDone || !predictedEnd) {
       // Nuovo step o primo calcolo: calcola predicted end time
       const newEnd = now + stepsRemaining * avgStepMs;
-      session._predictedEndMs = newEnd;
-      session._etaSteps = rawStepsDone;
+      etaState.set(session.sessionKey, { predictedEndMs: newEnd, etaSteps: rawStepsDone });
       etaMs = Math.round(newEnd - now);
     } else {
       // Tra step: countdown verso predicted end
       etaMs = Math.round(predictedEnd - now);
       if (etaMs < ETA_ACTIVE_FLOOR_MS) {
-        // Predicted end superato ma non done → bump forward
-        // "Ci vuole più del previsto" — ricalcola dalla velocità attuale
         const newEnd = now + stepsRemaining * avgStepMs;
-        session._predictedEndMs = newEnd;
+        etaState.set(session.sessionKey, { predictedEndMs: newEnd, etaSteps: rawStepsDone });
         etaMs = Math.round(newEnd - now);
       }
     }
@@ -287,11 +289,11 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const bar = renderProgressBar(progress.percent);
 
   if (session.phase === "done" || session.phase === "error") {
-    return `${icon} ${focus} |${modelTag} | ${elapsed}s${tokTag}`;
+    return `${icon} ${focus} │${modelTag} │ ${elapsed}s${tokTag}`;
   }
 
   const pct = progress.percent != null ? `${progress.percent}%` : "";
-  let line = `${icon} ${focus} | ${bar} ${pct} | ${elapsed}`;
+  let line = `${icon} ${focus} │ ${bar} ${pct} │ ${elapsed}`;
   if (progress.etaMs != null) line += `→${formatCompactSeconds(progress.etaMs)}`;
   // v2.0: show tool counter when we have real predicted count from llm_output
   const done = session.currentRunSteps;
