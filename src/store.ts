@@ -209,6 +209,20 @@ export class StatusbarStore {
     const key     = resolveConversationKey(target);
     const current = this.getConversation(target);
     const updated = { ...updater(current), updatedAt: Date.now() };
+    // Cap toolAvgDurations to 100 keys — remove lowest-value entries
+    const toolAvg = updated.toolAvgDurations;
+    if (toolAvg && typeof toolAvg === "object") {
+      const keys = Object.keys(toolAvg);
+      if (keys.length > 100) {
+        const sorted = keys
+          .filter(k => k !== "_global")
+          .sort((a, b) => (toolAvg[a] ?? 0) - (toolAvg[b] ?? 0));
+        const toRemove = sorted.slice(0, keys.length - 100);
+        for (const k of toRemove) {
+          delete toolAvg[k];
+        }
+      }
+    }
     this.data.conversations[key] = updated;
     return updated;
   }
