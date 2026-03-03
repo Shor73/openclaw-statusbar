@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi, ReplyPayload } from "openclaw/plugin-sdk";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, openSync, closeSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, openSync, closeSync } from "node:fs";
 import { normalizePluginConfig } from "./src/config.js";
 import {
   resolveSessionKeyFromMessageReceived,
