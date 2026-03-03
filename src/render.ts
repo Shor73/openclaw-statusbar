@@ -291,9 +291,9 @@ function renderDetailed(session: SessionRuntime, prefs: ConversationPrefs): stri
   const done = session.currentRunSteps;
   const predicted = session.predictedSteps ?? 0;
   if (predicted > 0 && (session.phase === "tool" || session.phase === "running")) {
-    line += ` │ ${done}/${predicted}🔧`;
+    line += ` │ ${done}/${predicted}▸`;
   } else if (done > 0 && session.phase === "tool") {
-    line += ` │ ${done}🔧`;
+    line += ` │ ${done}▸`;
   }
   return line;
 
