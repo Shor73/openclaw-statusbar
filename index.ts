@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi, ReplyPayload } from "openclaw/plugin-sdk";
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, openSync, closeSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { normalizePluginConfig } from "./src/config.js";
 import {
@@ -649,19 +649,32 @@ class StatusbarRuntime {
     return `/tmp/statusbar-lock-${chatId}`;
   }
   private acquireLock(chatId: string | number): boolean {
-    const path = this.lockPath(chatId);
+    const lockFile = this.lockPath(chatId);
+    const now = Date.now();
     try {
-      const now = Date.now();
-      if (existsSync(path)) {
-        const ts = parseInt(readFileSync(path, "utf8") || "0", 10);
-        if (!isNaN(ts) && now - ts < 90_000) {
-          // Lock attivo (< 90s), un'altra istanza sta gestendo questo chat
-          return false;
-        }
-      }
-      writeFileSync(path, now.toString(), "utf8");
+      // Atomic create: O_CREAT|O_EXCL via 'wx' flag — fails with EEXIST if file exists
+      const fd = openSync(lockFile, "wx");
+      writeFileSync(fd, now.toString(), "utf8");
+      closeSync(fd);
       return true;
-    } catch { return false; }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") return false;
+      // Lock file exists — check if stale (>90s)
+      try {
+        const ts = parseInt(readFileSync(lockFile, "utf8") || "0", 10);
+        if (!isNaN(ts) && now - ts < 90_000) {
+          return false; // Lock still active
+        }
+        // Stale lock — remove and retry once
+        try { unlinkSync(lockFile); } catch { /* ignore */ }
+        try {
+          const fd = openSync(lockFile, "wx");
+          writeFileSync(fd, now.toString(), "utf8");
+          closeSync(fd);
+          return true;
+        } catch { return false; }
+      } catch { return false; }
+    }
   }
   private releaseLock(chatId: string | number): void {
     try { unlinkSync(this.lockPath(chatId)); } catch { /* ignore */ }
@@ -736,11 +749,10 @@ class StatusbarRuntime {
       session.maxRunTimer = null;
       if (session.phase === "running") {
         session.phase = "done";
-      this.releaseLock(session.target.chatId); // fix #29
-        this.releaseLock(session.target.chatId); // fix #29
+        this.releaseLock(session.target.chatId);
         this.markDirty(session, true);
       }
-    }, 60_000);
+    }, 300_000);
     // fix #21: cambio fase → flush urgente, bypass throttle
     this.markDirty(session, true);
   }
