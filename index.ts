@@ -34,7 +34,7 @@ const SESSION_STALE_MS      =  2 * 60 * 60 * 1000;
 const PRUNE_INTERVAL_MS     =  5 * 60 * 1000;
 
 // Fasi "attive" che necessitano di tick periodici
-const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "thinking", "tool", "sending"]);
+const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "thinking", "tool"]); // "sending" excluded: 2s timer handles it, no live tick needed
 
 class StatusbarRuntime {
   private readonly api: OpenClawPluginApi;
@@ -526,11 +526,18 @@ class StatusbarRuntime {
       }
 
       if (!nextRef) {
-        nextRef = await this.transport.sendStatusMessage({
-          target:  session.target,
-          text,
-          buttons: controls,
-        });
+        // Solo se il plugin è ancora abilitato per questo target
+        if (prefs.enabled) {
+          nextRef = await this.transport.sendStatusMessage({
+            target:  session.target,
+            text,
+            buttons: controls,
+          });
+        } else {
+          // Plugin disabilitato — non creare nuovi messaggi
+          session.renderedRevision = session.desiredRevision;
+          return;
+        }
       }
 
       const didMessageRefChange =
