@@ -41,6 +41,7 @@ export function createMockSession(overrides?: Partial<SessionRuntime>): SessionR
     maxRunTimer: null,
     pendingDelivery: false,
     pendingDeliveryTimer: null,
+    wasLockOwner: false,
     currentRunId: null,
     isThinkingRun: false,
     predictedSteps: 0,

@@ -446,6 +446,7 @@ class StatusbarRuntime {
       pendingDelivery: false,
       pendingDeliveryTimer: null,
       llmDoneTimer: null,
+      wasLockOwner: false,
       currentRunId: null,
       isThinkingRun: false,
       predictedSteps: 0,
@@ -566,12 +567,12 @@ class StatusbarRuntime {
     // with the compaction LLM call. onAfterCompaction forces an urgent flush after.
     if (session.compacting) return;
 
-    // fix #30+#48: during active phases, only flush if the session has an active lock
-    // fix #57: only the lock OWNER can flush during active phases. Previously (fix #48)
-    // any instance could flush if a lock existed, but this causes flickering because
-    // two instances render the same Telegram message with different elapsed times.
-    // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
+    // fix #57: only the lock OWNER can flush during active phases.
+    // fix #58: also block "done"/"error" flush from non-owner instances.
+    // Without this, the non-owner's maxRunTimer fires at 90s and briefly flashes
+    // "done │ 1:30" before the owner's correct "done │ 16s" overwrites it.
     if (ACTIVE_PHASES.has(session.phase) && !this.isLockOwner(session.target.chatId)) return;
+    if ((session.phase === "done" || session.phase === "error") && !session.wasLockOwner) return;
 
     const prefs = this.store.getConversation(session.target);
     if (!prefs.enabled) return;
@@ -946,7 +947,9 @@ class StatusbarRuntime {
     } else if (!this.acquireLock(target.chatId)) {
       return;
     }
-    
+    // fix #58: track that THIS instance owns the run — only lock owners flush "done"
+    session.wasLockOwner = true;
+
     // fix #24: adaptive thinking fires two before_agent_start/agent_end cycles per user message.
     // Cancel any pending "done" render or hide timer so the user doesn't see a flash of "Done"
     // between the thinking turn and the response turn.

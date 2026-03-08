@@ -83,6 +83,7 @@ export type SessionRuntime = {
   pendingDelivery: boolean;
   pendingDeliveryTimer: ReturnType<typeof setTimeout> | null;
   llmDoneTimer?: ReturnType<typeof setTimeout> | null;
+  wasLockOwner: boolean;
   currentRunId: string | null;
   isThinkingRun: boolean;
   predictedSteps: number;
