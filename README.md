@@ -12,7 +12,7 @@
 > A live status bar for your AI agent, pinned right inside Telegram.  
 > See what Claude is doing, how long it's been thinking, and when it'll finish — in real time.
 
-[![Version](https://img.shields.io/badge/version-2.1.4-blueviolet?style=flat-square)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.0.5-blueviolet?style=flat-square)](./CHANGELOG.md)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-plugin-111111?style=flat-square)](https://github.com/openclaw/openclaw)
 [![Telegram](https://img.shields.io/badge/Telegram-live%20pin-26A5E4?style=flat-square&logo=telegram)](https://telegram.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
