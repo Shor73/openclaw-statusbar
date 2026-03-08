@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.4.0] — 2026-03-08
+
+### ✨ New (v2026.3.7 compatibility)
+
+- **Fix #32** — `before_compaction` / `after_compaction` hooks: suppresses Telegram edits while context compaction is running; forces urgent flush after compaction ends to re-sync display
+- **Fix #33** — `before_prompt_build` hook: injects statusbar command list into `appendSystemContext` (system prompt cached block, zero per-turn token cost) when statusbar is enabled
+- **Fix #35** — `openclaw.plugin.json`: explicit `hooks.allowPromptInjection: true` declaration for transparency and future-proofing
+- **Fix #36** — `resolver.ts`: handle new v2026.3.7 session key format `agent:<id>:telegram:<accountId>:group:<chatId>[:thread:<threadId>]` for forum group topic routing
+
+### 🔧 Internals
+
+- `SessionRuntime.compacting: boolean` field added to types
+- `createMockSession()` in test mocks updated with `compacting: false`
+- devDependency bumped to openclaw@2026.3.7 for accurate type checking
+
 ## [2.1.4] — 2026-03-03
 
 ### 🔴 Critical fix

@@ -66,6 +66,9 @@ class StatusbarRuntime {
 
   async init(): Promise<void> {
     await this.store.load();
+    // fix #42: clear ALL stale lock files on startup — previous gateway instances leave locks behind.
+    // Since this is a fresh process, any existing lock file belongs to a dead process.
+    this.clearStaleLocks();
     // Cleanup stale messages from previous gateway run — safe fire-and-forget
     this.cleanupStaleMessages().catch(() => { /* intentionally ignored */ });
     this.startLiveTicker();
@@ -137,16 +140,35 @@ class StatusbarRuntime {
       await this.onAfterToolCall(event, ctx);
     });
     this.api.on("llm_output", async (event, ctx) => {
+      this.debugLogHook("llm_output", ctx);
       await this.onLlmOutput(event, ctx);
     });
     this.api.on("agent_end", async (event, ctx) => {
+      this.debugLogHook("agent_end", ctx);
       await this.onAgentEnd(event, ctx);
     });
     this.api.on("llm_input", async (event, ctx) => {
+      this.debugLogHook("llm_input", ctx);
       await this.onLlmInput(event, ctx);
     });
-    // Note: message_sending/message_sent hooks NOT used — they fire for statusbar edits too,
-    // causing premature done transitions. 2s pendingDeliveryTimer is the sole mechanism.
+    // fix #32: compaction lifecycle — suppress renders during compaction, force flush after
+    this.api.on("before_compaction", async (_event, ctx) => {
+      await this.onBeforeCompaction(ctx);
+    });
+    this.api.on("after_compaction", async (_event, ctx) => {
+      await this.onAfterCompaction(ctx);
+    });
+    // fix #33: inject statusbar command docs into system prompt (cached, zero per-turn cost)
+    this.api.on("before_prompt_build", (_event, ctx) => {
+      return this.onBeforePromptBuild(ctx);
+    });
+    // fix #37: message_sent as immediate "done" trigger — fires when the main reply is delivered.
+    // statusbar edits go via editMessageText (not the outbound pipeline) so they don't trigger this.
+    // The 2s pendingDeliveryTimer is kept as a fallback for edge cases where message_sent doesn't fire.
+    this.api.on("message_sent", async (event, ctx) => {
+      this.debugLogHook("message_sent", ctx as Record<string, unknown>);
+      await this.onMessageSent(event, ctx);
+    });
   }
 
   // fix #2: teardown esplicito — ferma ticker e libera tutti i timer
@@ -221,12 +243,12 @@ class StatusbarRuntime {
     const cadenceMs  = Math.max(this.config.liveTickMs, this.config.minThrottleMs);
 
     for (const session of this.sessions.values()) {
-      // fix #31: idle detection — if no hook for 30s during active phase, force done
-      if (ACTIVE_PHASES.has(session.phase) && nowMs - session.lastHookAtMs > 30_000) {
-        this.transitionPhase(session, "done", { urgent: true });
-        if (session.queuedCount <= 0) this.scheduleAutoHide(session);
-        continue;
-      }
+      // fix #41: idle detection removed — agent_end/llm_output don't fire for main session,
+      // causing premature "done" during LLM generation. "done" is now triggered by:
+      //   1. agent_end hook (sub-agents / future main session fix)
+      //   2. onBeforeAgentStart of the NEXT turn (guaranteed correct signal)
+      //   3. maxRunTimer at 90s (safety net already in onBeforeAgentStart)
+      // NOTE: this means "done" may appear only when next message is sent for main session.
       // 1. check economico: fase inattiva → skip immediato
       if (!ACTIVE_PHASES.has(session.phase)) continue;
       // 2. check economico: throttle locale → skip immediato
@@ -418,6 +440,8 @@ class StatusbarRuntime {
       toolDurationsRaw: new Map(),
       thinkingLevel: null,
       lastHookAtMs: Date.now(),
+      compacting: false,
+      llmFinishedAtMs: null,
     };
   }
 
@@ -502,6 +526,10 @@ class StatusbarRuntime {
   private async flushSession(sessionKey: string): Promise<void> {
     const session = this.sessions.get(sessionKey);
     if (!session || session.isFlushing) return;
+
+    // fix #32: suppress flushes while compaction is running — avoids Telegram edit conflicts
+    // with the compaction LLM call. onAfterCompaction forces an urgent flush after.
+    if (session.compacting) return;
 
     // fix #30: only the lock owner can edit during active phases — prevents dual-instance flickering
     // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
@@ -614,6 +642,79 @@ class StatusbarRuntime {
     }
   }
 
+  // debug #38: check which hooks fire
+  private debugLogHook(name: string, ctx: Record<string, unknown>): void {
+    this.api.logger.warn(`[SB-HOOK] ${name} sessionKey="${ctx.sessionKey ?? "?"}" channelId="${ctx.channelId ?? "?"}" conversationId="${(ctx as Record<string, unknown>).conversationId ?? "?"}"`);
+  }
+
+  // fix #37: immediate "done" when main reply is delivered via Telegram outbound pipeline
+  private async onMessageSent(
+    event: { success: boolean },
+    ctx: { channelId: string; accountId?: string; conversationId?: string },
+  ): Promise<void> {
+    if (!event.success) return;
+    if ((ctx.channelId ?? "").toLowerCase() !== "telegram") return;
+
+    // Resolve target from message context (no sessionKey in message hooks)
+    const target = resolveTelegramTargetFromCommandContext({
+      channel: ctx.channelId,
+      accountId: ctx.accountId,
+      to: ctx.conversationId,
+    });
+    if (!target) return;
+
+    const session = this.sessions.get(this.resolveRuntimeSessionKey(target));
+    // fix #37: only trigger if pendingDelivery is set (by agent_end) and we're in "sending" phase
+    if (!session || !session.pendingDelivery || session.phase !== "sending") return;
+
+    // Main reply confirmed → cancel the fallback timer and transition immediately to done
+    if (session.pendingDeliveryTimer) {
+      clearTimeout(session.pendingDeliveryTimer);
+      session.pendingDeliveryTimer = null;
+    }
+    session.pendingDelivery = false;
+    this.transitionPhase(session, "done");
+  }
+
+  // fix #32: compaction lifecycle handlers
+  private async onBeforeCompaction(ctx: { sessionKey?: string }): Promise<void> {
+    const sessionKey = (ctx.sessionKey ?? "").trim();
+    if (!sessionKey) return;
+    const target = this.resolveTargetForSession(sessionKey);
+    if (!target) return;
+    const session = this.sessions.get(this.resolveRuntimeSessionKey(target));
+    if (!session) return;
+    session.compacting = true;
+    this.api.logger.debug?.(`statusbar: compaction started for session ${sessionKey} — renders paused`);
+  }
+
+  private async onAfterCompaction(ctx: { sessionKey?: string }): Promise<void> {
+    const sessionKey = (ctx.sessionKey ?? "").trim();
+    if (!sessionKey) return;
+    const target = this.resolveTargetForSession(sessionKey);
+    if (!target) return;
+    const session = this.sessions.get(this.resolveRuntimeSessionKey(target));
+    if (!session) return;
+    session.compacting = false;
+    // Force urgent flush to sync display with post-compaction state
+    this.markDirty(session, /* urgent= */ true);
+    this.api.logger.debug?.(`statusbar: compaction ended for session ${sessionKey} — force flush`);
+  }
+
+  // fix #33: append statusbar command docs to system prompt (cached block, zero per-turn cost)
+  private onBeforePromptBuild(ctx: { sessionKey?: string }): { appendSystemContext: string } | void {
+    const sessionKey = (ctx.sessionKey ?? "").trim();
+    if (!sessionKey) return;
+    const target = this.resolveTargetForSession(sessionKey);
+    if (!target) return;
+    const prefs = this.store.getConversation(target);
+    if (!prefs.enabled) return;
+    return {
+      appendSystemContext:
+        "Statusbar is active. Commands: /sbon /sboff /sbmode [minimal|normal|detailed] /sbpin /sbunpin /sbstatus /sbreset /sbbuttons /sbsettings",
+    };
+  }
+
   private async onMessageReceived(
     event: { from: string; content?: string; metadata?: Record<string, unknown> },
     ctx:   { channelId: string; accountId?: string; conversationId?: string },
@@ -702,6 +803,20 @@ class StatusbarRuntime {
   private releaseLock(chatId: string | number): void {
     try { unlinkSync(this.lockPath(chatId)); } catch { /* ignore */ }
   }
+
+  /** fix #42: clear all stale lock files on plugin startup. */
+  private clearStaleLocks(): void {
+    try {
+      const { readdirSync } = require("fs") as typeof import("fs");
+      const files = readdirSync("/tmp").filter((f: string) => f.startsWith("statusbar-lock-"));
+      for (const file of files) {
+        try { unlinkSync(`/tmp/${file}`); } catch { /* ignore */ }
+      }
+      if (files.length > 0) {
+        this.api.logger.warn(`statusbar: cleared ${files.length} stale lock file(s) on startup`);
+      }
+    } catch { /* ignore */ }
+  }
   private touchLock(chatId: string | number): void {
     try { writeFileSync(this.lockPath(chatId), `${Date.now()}:${this.instanceId}`, "utf8"); } catch { /* ignore */ }
   }
@@ -714,8 +829,10 @@ class StatusbarRuntime {
     } catch { return false; }
   }
 
-  private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string }): Promise<void> {
+  private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string; channelId?: string }): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
+    // debug #38
+    this.api.logger.warn(`[SB-DEBUG] before_agent_start ctx=${JSON.stringify(ctx)} sessionKey="${sessionKey}"`);
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
@@ -728,13 +845,17 @@ class StatusbarRuntime {
     // fix #29: cross-instance lock — se un'altra istanza sta già gestendo questo chat, skip
     const session = this.getOrCreateSession(target);
     if (session.phase === "running" || session.phase === "thinking" || session.phase === "tool") {
-      // Only touch if we own the lock
       if (this.isLockOwner(target.chatId)) {
-        this.touchLock(target.chatId);
+        // fix #41: a new before_agent_start while we own the lock + session is active means the
+        // previous turn ended silently (agent_end didn't fire — main session bug in v2026.3.7).
+        // Force "done" for the previous turn, then fall through to start the new run.
+        this.transitionPhase(session, "done", { urgent: true });
+        // brief flush so "done" is visible before overwriting with new run state
+        await this.flushSession(session.sessionKey);
+      } else {
+        return; // another instance owns this session
       }
-      return;
-    }
-    if (!this.acquireLock(target.chatId)) {
+    } else if (!this.acquireLock(target.chatId)) {
       return;
     }
     
@@ -932,13 +1053,16 @@ class StatusbarRuntime {
         this.markDirty(session);
       }
     }
+
   }
 
   private async onAgentEnd(
     event: { success: boolean; error?: string; durationMs?: number },
-    ctx:   { sessionKey?: string },
+    ctx:   { sessionKey?: string; channelId?: string },
   ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
+    // debug #38: log full ctx to diagnose 30s bug
+    this.api.logger.warn(`[SB-DEBUG] agent_end ctx=${JSON.stringify(ctx)} sessionKey="${sessionKey}" activeSessions=${[...this.sessions.keys()].join(',')} trackedKeys=${[...this.sessionTargets.keys()].slice(0,5).join(',')}`);
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
@@ -972,8 +1096,8 @@ class StatusbarRuntime {
     this.transitionPhase(session, event.success ? "sending" : "error");
 
     if (event.success) {
-      // Primary: auto-transition to done after 2s (message_sending/sent unreliable for bot replies)
-      // message_sending/sent hooks act as bonus early triggers if they happen to fire
+      // fix #39: reduced from 2s to 500ms — message_sent hook fires immediately when reply arrives,
+      // this timer is just the fallback if message_sent doesn't fire (edge case).
       if (session.pendingDeliveryTimer) { clearTimeout(session.pendingDeliveryTimer); }
       session.pendingDeliveryTimer = setTimeout(() => {
         session.pendingDeliveryTimer = null;
@@ -981,7 +1105,7 @@ class StatusbarRuntime {
           session.pendingDelivery = false;
           this.transitionPhase(session, "done");
         }
-      }, 2_000);
+      }, 500);
 
       const durationMs     = Math.max(1000, (session.endedAtMs ?? nowMs) - session.startedAtMs);
       const completedSteps = Math.max(1, session.currentRunSteps);

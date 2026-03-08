@@ -88,6 +88,10 @@ export type SessionRuntime = {
   toolDurationsRaw: Map<string, number[]>;
   thinkingLevel: string | null;
   lastHookAtMs: number;
+  /** fix #32: true while a compaction run is in progress — suppresses flushes to avoid edit conflicts */
+  compacting: boolean; // always false by default, set by before_compaction/after_compaction hooks
+  /** fix #38: timestamp when the final llm_output (no tool_use) fired — used for stats fallback */
+  llmFinishedAtMs: number | null;
 };
 
 export type TelegramInlineButtons = Array<Array<{ text: string; callback_data: string }>>;

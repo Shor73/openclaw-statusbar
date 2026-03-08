@@ -228,13 +228,20 @@ export function resolveTelegramTargetFromSessionKey(sessionKey: string): Telegra
   let peerId    = "";
 
   if (rest.length >= 4 && (rest[2] === "dm" || rest[2] === "direct")) {
+    // Format: agent:<id>:telegram:<accountId>:dm:<peerId>
     accountId = normalizeAccountId(rest[1]);
     kind      = rest[2];
+    peerId    = rest.slice(3).join(":");
+  } else if (rest.length >= 4 && rest[2] === "group") {
+    // fix #36: v2026.3.7 format: agent:<id>:telegram:<accountId>:group:<chatId>[:thread:<threadId>]
+    accountId = normalizeAccountId(rest[1]);
+    kind      = "group";
     peerId    = rest.slice(3).join(":");
   } else if (
     rest.length >= 3 &&
     (rest[1] === "dm" || rest[1] === "direct" || rest[1] === "group")
   ) {
+    // Legacy format: agent:<id>:telegram:dm/<direct>/<group>:<peerId>
     kind   = rest[1];
     peerId = rest.slice(2).join(":");
   } else {

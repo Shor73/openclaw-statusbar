@@ -47,6 +47,8 @@ export function createMockSession(overrides?: Partial<SessionRuntime>): SessionR
     toolDurationsRaw: new Map(),
     thinkingLevel: null,
     lastHookAtMs: Date.now(),
+    compacting: false,
+    llmFinishedAtMs: null,
     ...overrides,
   };
 }
