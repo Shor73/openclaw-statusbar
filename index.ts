@@ -672,16 +672,30 @@ class StatusbarRuntime {
     if (!target) return;
 
     const session = this.sessions.get(this.resolveRuntimeSessionKey(target));
-    // fix #37: only trigger if pendingDelivery is set (by agent_end) and we're in "sending" phase
-    if (!session || !session.pendingDelivery || session.phase !== "sending") return;
+    if (!session) return;
 
-    // Main reply confirmed → cancel the fallback timer and transition immediately to done
-    if (session.pendingDeliveryTimer) {
-      clearTimeout(session.pendingDeliveryTimer);
-      session.pendingDeliveryTimer = null;
+    // fix #37: pendingDelivery path — agent_end already fired, message confirmed
+    if (session.pendingDelivery && session.phase === "sending") {
+      if (session.pendingDeliveryTimer) {
+        clearTimeout(session.pendingDeliveryTimer);
+        session.pendingDeliveryTimer = null;
+      }
+      session.pendingDelivery = false;
+      this.transitionPhase(session, "done");
+      return;
     }
-    session.pendingDelivery = false;
-    this.transitionPhase(session, "done");
+
+    // fix #50: fallback — if session is still in an ACTIVE phase when message_sent fires,
+    // agent_end never arrived (e.g. user abort). Treat message delivery as run completion.
+    if (ACTIVE_PHASES.has(session.phase)) {
+      if (session.pendingDeliveryTimer) {
+        clearTimeout(session.pendingDeliveryTimer);
+        session.pendingDeliveryTimer = null;
+      }
+      session.pendingDelivery = false;
+      this.transitionPhase(session, "done");
+      return;
+    }
   }
 
   // fix #32: compaction lifecycle handlers
