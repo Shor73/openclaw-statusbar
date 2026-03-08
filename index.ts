@@ -846,11 +846,17 @@ class StatusbarRuntime {
     const session = this.getOrCreateSession(target);
     if (session.phase === "running" || session.phase === "thinking" || session.phase === "tool") {
       if (this.isLockOwner(target.chatId)) {
-        // fix #41: a new before_agent_start while we own the lock + session is active means the
-        // previous turn ended silently (agent_end didn't fire — main session bug in v2026.3.7).
-        // Force "done" for the previous turn, then fall through to start the new run.
+        const runAgeMs = Date.now() - (session.startedAtMs ?? 0);
+        if (runAgeMs < 2_000) {
+          // fix #43: before_agent_start double-fires within ~100ms — this is the second fire
+          // for the SAME turn, not a new user message. Touch lock and skip to avoid
+          // Fix #41 incorrectly forcing "done" on the current (just-started) run.
+          this.touchLock(target.chatId);
+          return;
+        }
+        // fix #41: run is >2s old and a new before_agent_start fired while we own the lock —
+        // the previous turn ended silently (agent_end didn't fire). Force "done" and start new run.
         this.transitionPhase(session, "done", { urgent: true });
-        // brief flush so "done" is visible before overwriting with new run state
         await this.flushSession(session.sessionKey);
       } else {
         return; // another instance owns this session
