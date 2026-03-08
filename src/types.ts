@@ -82,6 +82,7 @@ export type SessionRuntime = {
   maxRunTimer: ReturnType<typeof setTimeout> | null;
   pendingDelivery: boolean;
   pendingDeliveryTimer: ReturnType<typeof setTimeout> | null;
+  llmDoneTimer?: ReturnType<typeof setTimeout> | null;
   currentRunId: string | null;
   isThinkingRun: boolean;
   predictedSteps: number;

@@ -165,8 +165,7 @@ class StatusbarRuntime {
     // statusbar edits go via editMessageText (not the outbound pipeline) so they don't trigger this.
     // The 2s pendingDeliveryTimer is kept as a fallback for edge cases where message_sent doesn't fire.
     this.api.on("message_sent", async (event, ctx) => {
-
-
+      this.api.logger.warn(`statusbar: message_sent hook fired ctx=${JSON.stringify(ctx)}`);
       await this.onMessageSent(event, ctx);
     });
   }
@@ -182,6 +181,7 @@ class StatusbarRuntime {
       if (s.hideTimer)             clearTimeout(s.hideTimer);
       if (s.maxRunTimer)           clearTimeout(s.maxRunTimer);
       if (s.pendingDeliveryTimer)  clearTimeout(s.pendingDeliveryTimer);
+      if (s.llmDoneTimer)          clearTimeout(s.llmDoneTimer);
     }
     this.sessions.clear();
     this.store.flushPersist();
@@ -445,6 +445,7 @@ class StatusbarRuntime {
       maxRunTimer: null,
       pendingDelivery: false,
       pendingDeliveryTimer: null,
+      llmDoneTimer: null,
       currentRunId: null,
       isThinkingRun: false,
       predictedSteps: 0,
@@ -493,6 +494,11 @@ class StatusbarRuntime {
       if (session.maxRunTimer) {
         clearTimeout(session.maxRunTimer);
         session.maxRunTimer = null;
+      }
+      // fix #56: clear llmDoneTimer — already transitioning, no need for fallback
+      if (session.llmDoneTimer) {
+        clearTimeout(session.llmDoneTimer);
+        session.llmDoneTimer = null;
       }
     }
     this.markDirty(session, opts?.urgent ?? true);
@@ -1013,6 +1019,8 @@ class StatusbarRuntime {
     if (!prefs.enabled) return;
 
     const session = this.getOrCreateSession(target);
+    // fix #56: cancel llm_output done timer — a tool call means more work is coming
+    if (session.llmDoneTimer) { clearTimeout(session.llmDoneTimer); session.llmDoneTimer = null; }
     session.currentRunSteps += 1;
     // v2.1: grow predicted to at least current step count (reactive counter)
     session.predictedSteps = Math.max(session.predictedSteps, session.currentRunSteps);
@@ -1140,6 +1148,19 @@ class StatusbarRuntime {
         this.markDirty(session);
       }
     }
+
+    // fix #56: llm_output-based "done" detection. Since message_sent and agent_end hooks
+    // are unreliable (don't always fire), use llm_output as the last signal.
+    // After llm_output, set a 5s timer → "done". If before_tool_call fires within 5s,
+    // cancel the timer (more work to do). If another llm_output fires, reset the timer.
+    if (session.llmDoneTimer) clearTimeout(session.llmDoneTimer);
+    session.llmDoneTimer = setTimeout(() => {
+      session.llmDoneTimer = null;
+      if (!ACTIVE_PHASES.has(session.phase)) return; // already done
+      this.api.logger.warn(`statusbar: fix #56 llm_output done timer fired (phase=${session.phase})`);
+      this.releaseLock(target.chatId);
+      this.transitionPhase(session, "done");
+    }, 5_000);
 
   }
 
