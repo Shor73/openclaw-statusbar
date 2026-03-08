@@ -23,7 +23,7 @@ const RE_AGENT_ID = /^agent:([^:]+):/;
 const RE_AGENT_MAIN = /^agent:([^:]+):main$/;
 
 const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "thinking", "tool"]);
-const STALE_WRITER_MS = 15_000; // if writer hasn't updated in 15s, another instance can render
+const STALE_WRITER_MS = 5_000; // if writer hasn't updated in 5s, another instance can render
 
 type SessionTargetRef = { target: TelegramTarget; seenAtMs: number };
 type SenderTargetRef = { target: TelegramTarget; seenAtMs: number };
@@ -56,7 +56,9 @@ class StatusbarRuntime {
   private readonly store: StatusbarStore;
   private readonly transport: TelegramTransport;
   private readonly shared: SharedState;
-  private readonly instanceId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  // Both [gateway] and [plugins] instances run in the SAME process (same PID).
+  // Use PID-only so canRender() treats them as the same writer.
+  private readonly instanceId = `${process.pid}`;
 
   // Local render states — keyed by runtimeSessionKey (chat|chatId|threadId)
   private readonly renderStates = new Map<string, LocalRenderState>();
@@ -547,7 +549,7 @@ class StatusbarRuntime {
       };
     });
 
-    this.markDirty(key);
+    this.markDirty(key, true);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
