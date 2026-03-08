@@ -508,6 +508,7 @@ class StatusbarRuntime {
     if (RE_COMMAND.test((event.content ?? "").trim())) return;
 
     const prefs = this.store.getConversation(target);
+    this.api.logger.debug?.(`statusbar: message_received target=${target.chatId} enabled=${prefs.enabled}`);
     if (!prefs.enabled) return;
 
     const key = this.runtimeKey(target);
