@@ -567,11 +567,12 @@ class StatusbarRuntime {
     const key = this.runtimeKey(target);
     const rs = this.getOrCreateRenderState(target);
 
-    // If previous run is active and >2s old, force "done" first
+    // If previous run is in a REAL active phase (not queued), handle it
     const existing = this.shared.get(key);
-    if (existing && ACTIVE_PHASES.has(existing.phase)) {
+    if (existing && (existing.phase === "running" || existing.phase === "thinking" || existing.phase === "tool")) {
       const age = Date.now() - existing.startedAtMs;
       if (age > 2000) {
+        // Previous run ended silently — force "done" then start new
         this.shared.update(key, (s) => s ? { ...s, phase: "done", endedAtMs: Date.now(), writerInstanceId: this.instanceId, updatedAtMs: Date.now() } : null);
         this.markDirty(key, true);
         await this.flush(key);
@@ -580,6 +581,7 @@ class StatusbarRuntime {
         return;
       }
     }
+    // "queued", "idle", "done", "error", "sending" → proceed normally to start new run
 
     // Clear all timers for fresh start
     if (rs.hideTimer) { clearTimeout(rs.hideTimer); rs.hideTimer = null; }
