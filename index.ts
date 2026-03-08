@@ -806,7 +806,9 @@ class StatusbarRuntime {
     const nowMs = Date.now();
     if (rs.maxRunTimer) { clearTimeout(rs.maxRunTimer); rs.maxRunTimer = null; }
 
-    const nextPhase: RunPhase = event.success ? "done" : "error";
+    // "sending" = agent finished, waiting for Telegram delivery confirmation
+    // "error" = agent failed
+    const nextPhase: RunPhase = event.success ? "sending" : "error";
 
     this.shared.update(key, (s) => {
       if (!s) return null;
@@ -825,6 +827,17 @@ class StatusbarRuntime {
         updatedAtMs: nowMs,
       };
     });
+
+    // Fallback: if message_sent doesn't fire within 500ms, force "done"
+    if (event.success) {
+      setTimeout(() => {
+        const current = this.shared.get(key);
+        if (current && current.phase === "sending") {
+          this.shared.update(key, (s) => s ? { ...s, phase: "done", writerInstanceId: this.instanceId, updatedAtMs: Date.now() } : null);
+          this.markDirty(key, true);
+        }
+      }, 500);
+    }
 
     // Update conversation stats on success
     if (event.success) {
