@@ -464,6 +464,18 @@ class StatusbarRuntime {
       return existing;
     }
     const created = this.createSessionState({ sessionKey: runtimeSessionKey, target });
+    // fix #55: sync startedAtMs from lock file when creating a session mid-run in a
+    // different instance. Without this, the new session starts with Date.now() as
+    // startedAtMs, causing flickering between "correct elapsed" and "0s elapsed"
+    // as both instances race to edit the same Telegram message.
+    try {
+      const lockContent = readFileSync(this.lockPath(target.chatId), "utf8");
+      const [tsStr] = lockContent.split(":");
+      const lockTs = parseInt(tsStr, 10);
+      if (!isNaN(lockTs) && lockTs < Date.now()) {
+        created.startedAtMs = lockTs;
+      }
+    } catch { /* no lock file = no active run in other instance */ }
     this.sessions.set(runtimeSessionKey, created);
     return created;
   }
@@ -707,7 +719,8 @@ class StatusbarRuntime {
     // getOrCreateSession) but a lock file exists, meaning the OTHER instance has the real
     // active session. message_sent = reply delivered = run is done.
     // Read lock file timestamp as approximate run start time for elapsed display.
-    if (session.phase === "idle" && this.isLocked(target.chatId)) {
+    if ((session.phase === "idle" || session.phase === "done") && this.isLocked(target.chatId)) {
+      this.api.logger.warn(`statusbar: fix #54 cross-instance done via lock (phase=${session.phase})`);
       try {
         const content = readFileSync(this.lockPath(target.chatId), "utf8");
         const [tsStr] = content.split(":");
