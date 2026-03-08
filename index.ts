@@ -473,7 +473,7 @@ class StatusbarRuntime {
       const lockContent = readFileSync(this.lockPath(target.chatId), "utf8");
       const [tsStr] = lockContent.split(":");
       const lockTs = parseInt(tsStr, 10);
-      if (!isNaN(lockTs) && lockTs < Date.now()) {
+      if (!isNaN(lockTs) && lockTs < Date.now() && (Date.now() - lockTs) < 120_000) {
         created.startedAtMs = lockTs;
       }
     } catch { /* no lock file = no active run in other instance */ }
@@ -567,10 +567,11 @@ class StatusbarRuntime {
     if (session.compacting) return;
 
     // fix #30+#48: during active phases, only flush if the session has an active lock
-    // (any instance). This allows both [plugins] and [gateway] instances to render updates
-    // while preventing unowned stale sessions from flushing.
+    // fix #57: only the lock OWNER can flush during active phases. Previously (fix #48)
+    // any instance could flush if a lock existed, but this causes flickering because
+    // two instances render the same Telegram message with different elapsed times.
     // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
-    if (ACTIVE_PHASES.has(session.phase) && !this.isLocked(session.target.chatId) && !this.isLockOwner(session.target.chatId)) return;
+    if (ACTIVE_PHASES.has(session.phase) && !this.isLockOwner(session.target.chatId)) return;
 
     const prefs = this.store.getConversation(session.target);
     if (!prefs.enabled) return;
