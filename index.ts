@@ -134,23 +134,21 @@ class StatusbarRuntime {
       await this.onBeforeAgentStart(ctx);
     });
     this.api.on("before_tool_call", async (event, ctx) => {
-      this.debugLogHook("before_tool_call", { ...(ctx as Record<string, unknown>), toolName: (event as Record<string, unknown>).toolName });
       await this.onBeforeToolCall(event, ctx);
     });
     this.api.on("after_tool_call", async (event, ctx) => {
-      this.debugLogHook("after_tool_call", { ...(ctx as Record<string, unknown>), toolName: (event as Record<string, unknown>).toolName });
       await this.onAfterToolCall(event, ctx);
     });
     this.api.on("llm_output", async (event, ctx) => {
-      this.debugLogHook("llm_output", ctx);
+
       await this.onLlmOutput(event, ctx);
     });
     this.api.on("agent_end", async (event, ctx) => {
-      this.debugLogHook("agent_end", ctx);
+
       await this.onAgentEnd(event, ctx);
     });
     this.api.on("llm_input", async (event, ctx) => {
-      this.debugLogHook("llm_input", ctx);
+
       await this.onLlmInput(event, ctx);
     });
     // fix #32: compaction lifecycle — suppress renders during compaction, force flush after
@@ -168,7 +166,7 @@ class StatusbarRuntime {
     // statusbar edits go via editMessageText (not the outbound pipeline) so they don't trigger this.
     // The 2s pendingDeliveryTimer is kept as a fallback for edge cases where message_sent doesn't fire.
     this.api.on("message_sent", async (event, ctx) => {
-      this.debugLogHook("message_sent", ctx as Record<string, unknown>);
+
       await this.onMessageSent(event, ctx);
     });
   }
@@ -540,46 +538,25 @@ class StatusbarRuntime {
 
   private async flushSession(sessionKey: string): Promise<void> {
     const session = this.sessions.get(sessionKey);
-    if (!session) { return; }
-    if (session.isFlushing) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP isFlushing=true phase=${session.phase} key=${sessionKey}`);
-      return;
-    }
+    if (!session || session.isFlushing) return;
 
     // fix #32: suppress flushes while compaction is running — avoids Telegram edit conflicts
     // with the compaction LLM call. onAfterCompaction forces an urgent flush after.
-    if (session.compacting) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP compacting=true phase=${session.phase}`);
-      return;
-    }
+    if (session.compacting) return;
 
     // fix #30+#48: during active phases, only flush if the session has an active lock
     // (any instance). This allows both [plugins] and [gateway] instances to render updates
     // while preventing unowned stale sessions from flushing.
     // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
-    if (ACTIVE_PHASES.has(session.phase) && !this.isLocked(session.target.chatId) && !this.isLockOwner(session.target.chatId)) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP no-lock phase=${session.phase} locked=${this.isLocked(session.target.chatId)} owner=${this.isLockOwner(session.target.chatId)}`);
-      return;
-    }
+    if (ACTIVE_PHASES.has(session.phase) && !this.isLocked(session.target.chatId) && !this.isLockOwner(session.target.chatId)) return;
 
     const prefs = this.store.getConversation(session.target);
-    if (!prefs.enabled) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP not-enabled phase=${session.phase}`);
-      return;
-    }
+    if (!prefs.enabled) return;
 
-    if (session.desiredRevision <= session.renderedRevision) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP no-revision-change desired=${session.desiredRevision} rendered=${session.renderedRevision} phase=${session.phase}`);
-      return;
-    }
+    if (session.desiredRevision <= session.renderedRevision) return;
 
     // fix #17: controlla il circuit breaker prima di qualsiasi chiamata API
-    if (!this.transport.canProceed(session.target.accountId, session.target.chatId)) {
-      this.api.logger.warn(`[SB-FLUSH] SKIP circuit-breaker phase=${session.phase}`);
-      return;
-    }
-
-    this.api.logger.warn(`[SB-FLUSH] START phase=${session.phase} desired=${session.desiredRevision} rendered=${session.renderedRevision}`);
+    if (!this.transport.canProceed(session.target.accountId, session.target.chatId)) return;
     session.isFlushing = true;
     try {
       const text        = renderStatusText(session, prefs);
@@ -676,10 +653,7 @@ class StatusbarRuntime {
     }
   }
 
-  // debug #38: check which hooks fire
-  private debugLogHook(name: string, ctx: Record<string, unknown>): void {
-    this.api.logger.warn(`[SB-HOOK] ${name} sessionKey="${ctx.sessionKey ?? "?"}" channelId="${ctx.channelId ?? "?"}" conversationId="${(ctx as Record<string, unknown>).conversationId ?? "?"}"`);
-  }
+
 
   // fix #37: immediate "done" when main reply is delivered via Telegram outbound pipeline
   private async onMessageSent(
@@ -875,8 +849,6 @@ class StatusbarRuntime {
 
   private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string; channelId?: string }): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
-    // debug #38
-    this.api.logger.warn(`[SB-DEBUG] before_agent_start ctx=${JSON.stringify(ctx)} sessionKey="${sessionKey}"`);
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
@@ -1126,8 +1098,6 @@ class StatusbarRuntime {
     ctx:   { sessionKey?: string; channelId?: string },
   ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
-    // debug #38: log full ctx to diagnose 30s bug
-    this.api.logger.warn(`[SB-DEBUG] agent_end ctx=${JSON.stringify(ctx)} sessionKey="${sessionKey}" activeSessions=${[...this.sessions.keys()].join(',')} trackedKeys=${[...this.sessionTargets.keys()].slice(0,5).join(',')}`);
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {
