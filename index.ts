@@ -719,14 +719,15 @@ class StatusbarRuntime {
         session.pendingDeliveryTimer = null;
       }
       session.pendingDelivery = false;
+      if (!session.wasLockOwner) session.wasLockOwner = true; // fix #59
       this.transitionPhase(session, "done");
       return;
     }
 
-    // fix #54: cross-instance "done" — this instance's session is "idle" (just created by
+    // fix #54+#59: cross-instance "done" — this instance's session is "idle" (just created by
     // getOrCreateSession) but a lock file exists, meaning the OTHER instance has the real
     // active session. message_sent = reply delivered = run is done.
-    // Read lock file timestamp as approximate run start time for elapsed display.
+    // Set wasLockOwner=true so fix #58's flush guard allows this "done" to render.
     if ((session.phase === "idle" || session.phase === "done") && this.isLocked(target.chatId)) {
       this.api.logger.warn(`statusbar: fix #54 cross-instance done via lock (phase=${session.phase})`);
       try {
@@ -736,6 +737,7 @@ class StatusbarRuntime {
         if (!isNaN(lockTs)) session.startedAtMs = lockTs;
       } catch { /* use default startedAtMs */ }
       session.pendingDelivery = false;
+      session.wasLockOwner = true; // fix #59: allow flush past fix #58 guard
       this.releaseLock(target.chatId);
       this.transitionPhase(session, "done");
       return;
