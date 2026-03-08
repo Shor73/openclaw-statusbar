@@ -182,6 +182,16 @@ class StatusbarRuntime {
     if (tracked) { tracked.seenAtMs = Date.now(); return tracked.target; }
     const fromKey = resolveTelegramTargetFromSessionKey(key);
     if (fromKey) {
+      // Fix: session key "agent:main:telegram:direct:25017841" is parsed as legacy format
+      // with accountId="default". Extract actual agentId from the key and use it as accountId.
+      if (fromKey.accountId === "default") {
+        const agentMatch = RE_AGENT_ID.exec(key);
+        if (agentMatch?.[1]) {
+          fromKey.accountId = agentMatch[1].trim();
+          fromKey.conversationId = `telegram:${fromKey.chatId}`;
+        }
+      }
+      // Also try to align with an already-tracked target for this chatId
       for (const [, entry] of this.sessionTargets) {
         if (entry.target.chatId === fromKey.chatId && entry.target.threadId === fromKey.threadId) {
           fromKey.accountId = entry.target.accountId;
