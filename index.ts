@@ -465,6 +465,12 @@ class StatusbarRuntime {
     if (newPhase === "done" || newPhase === "error") {
       session.endedAtMs = Date.now();
       this.releaseLock(session.target.chatId);
+      // fix #44: clear maxRunTimer when run ends normally — prevents stale timer
+      // from firing on the NEXT run and forcing it to "done" prematurely.
+      if (session.maxRunTimer) {
+        clearTimeout(session.maxRunTimer);
+        session.maxRunTimer = null;
+      }
     }
     this.markDirty(session, opts?.urgent ?? true);
   }
@@ -829,6 +835,16 @@ class StatusbarRuntime {
     } catch { return false; }
   }
 
+  /** fix #45: returns true if ANY active (non-stale) lock exists for this chatId */
+  private isLocked(chatId: string | number): boolean {
+    try {
+      const content = readFileSync(this.lockPath(chatId), "utf8");
+      const [tsStr] = content.split(":");
+      const ts = parseInt(tsStr, 10);
+      return !isNaN(ts) && Date.now() - ts < 90_000;
+    } catch { return false; }
+  }
+
   private async onBeforeAgentStart(ctx: { sessionKey?: string; thinkingLevel?: string; reasoning?: string; channelId?: string }): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
     // debug #38
@@ -858,8 +874,17 @@ class StatusbarRuntime {
         // the previous turn ended silently (agent_end didn't fire). Force "done" and start new run.
         this.transitionPhase(session, "done", { urgent: true });
         await this.flushSession(session.sessionKey);
+      } else if (this.isLocked(target.chatId)) {
+        // fix #45a: an ACTIVE lock exists owned by another instance — skip
+        return;
       } else {
-        return; // another instance owns this session
+        // fix #45b: session stuck in ACTIVE_PHASE but NO lock held (stale from previous gateway
+        // restart — clearStaleLocks deleted the file but state.json still has old phase).
+        // Acquire lock and force-done the stale session so the new run can start cleanly.
+        this.api.logger.warn(`statusbar: stale session phase=${session.phase} with no lock — resetting`);
+        if (!this.acquireLock(target.chatId)) return;
+        this.transitionPhase(session, "done", { urgent: true });
+        await this.flushSession(session.sessionKey);
       }
     } else if (!this.acquireLock(target.chatId)) {
       return;
@@ -872,10 +897,14 @@ class StatusbarRuntime {
       clearTimeout(session.hideTimer);
       session.hideTimer = null;
     }
-    if (session.renderTimer && (session.phase === "done" || session.phase === "idle" || session.phase === "error")) {
+    // fix #46: nuclear flush reset — clear ANY pending render timer and stuck isFlushing
+    // This ensures the bar ALWAYS starts fresh regardless of what happened in the previous turn.
+    if (session.renderTimer) {
       clearTimeout(session.renderTimer);
       session.renderTimer = null;
     }
+    session.isFlushing = false;
+    session.nextAllowedAtMs = 0;
     // v2.0: cancel pending delivery if we're starting a new turn
     if (session.pendingDeliveryTimer) {
       clearTimeout(session.pendingDeliveryTimer);
@@ -903,14 +932,16 @@ class StatusbarRuntime {
     if (typeof thinkingRaw === "string" && thinkingRaw.trim()) {
       session.thinkingLevel = thinkingRaw.trim();
     }
-    // fix #25: safety net — se agent_end non scatta entro 300s, forza "done"
+    // fix #25: safety net — se agent_end non scatta entro 90s, forza "done"
+    // fix #47: check ACTIVE_PHASES (non solo "running") — copre anche "thinking", "tool"
     if (session.maxRunTimer) {
       clearTimeout(session.maxRunTimer);
       session.maxRunTimer = null;
     }
     session.maxRunTimer = setTimeout(() => {
       session.maxRunTimer = null;
-      if (session.phase === "running") {
+      if (ACTIVE_PHASES.has(session.phase)) {
+        this.api.logger.warn(`statusbar: maxRunTimer fired for phase=${session.phase}, forcing done`);
         this.transitionPhase(session, "done");
       }
     }, 90_000);
