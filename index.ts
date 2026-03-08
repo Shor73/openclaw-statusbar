@@ -702,6 +702,23 @@ class StatusbarRuntime {
       this.transitionPhase(session, "done");
       return;
     }
+
+    // fix #54: cross-instance "done" — this instance's session is "idle" (just created by
+    // getOrCreateSession) but a lock file exists, meaning the OTHER instance has the real
+    // active session. message_sent = reply delivered = run is done.
+    // Read lock file timestamp as approximate run start time for elapsed display.
+    if (session.phase === "idle" && this.isLocked(target.chatId)) {
+      try {
+        const content = readFileSync(this.lockPath(target.chatId), "utf8");
+        const [tsStr] = content.split(":");
+        const lockTs = parseInt(tsStr, 10);
+        if (!isNaN(lockTs)) session.startedAtMs = lockTs;
+      } catch { /* use default startedAtMs */ }
+      session.pendingDelivery = false;
+      this.releaseLock(target.chatId);
+      this.transitionPhase(session, "done");
+      return;
+    }
   }
 
   // fix #32: compaction lifecycle handlers
