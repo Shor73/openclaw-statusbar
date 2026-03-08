@@ -144,7 +144,6 @@ class StatusbarRuntime {
       await this.onLlmOutput(event, ctx);
     });
     this.api.on("agent_end", async (event, ctx) => {
-
       await this.onAgentEnd(event, ctx);
     });
     this.api.on("llm_input", async (event, ctx) => {
@@ -166,6 +165,7 @@ class StatusbarRuntime {
     // statusbar edits go via editMessageText (not the outbound pipeline) so they don't trigger this.
     // The 2s pendingDeliveryTimer is kept as a fallback for edge cases where message_sent doesn't fire.
     this.api.on("message_sent", async (event, ctx) => {
+
 
       await this.onMessageSent(event, ctx);
     });
@@ -671,8 +671,10 @@ class StatusbarRuntime {
     });
     if (!target) return;
 
-    const session = this.sessions.get(this.resolveRuntimeSessionKey(target));
-    if (!session) return;
+    // fix #52: use getOrCreateSession — plugin runs as two separate instances ([gateway] and
+    // [plugins]) with independent Maps. before_agent_start creates the session in [plugins],
+    // but message_sent fires in [gateway] where the session doesn't exist yet.
+    const session = this.getOrCreateSession(target);
 
     // fix #37: pendingDelivery path — agent_end already fired, message confirmed
     if (session.pendingDelivery && session.phase === "sending") {
@@ -1112,6 +1114,7 @@ class StatusbarRuntime {
     ctx:   { sessionKey?: string; channelId?: string },
   ): Promise<void> {
     const sessionKey = (ctx.sessionKey ?? "").trim();
+
     if (!sessionKey) return;
     const target = this.resolveTargetForSession(sessionKey);
     if (!target) {

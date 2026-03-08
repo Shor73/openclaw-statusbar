@@ -50,7 +50,15 @@ function asInt(value: unknown): number | null {
 
 function parseChatIdFromReference(raw: string): string | null {
   const trimmed = raw.trim();
-  if (!trimmed || !trimmed.startsWith(TELEGRAM_PREFIX)) return null;
+  if (!trimmed) return null;
+
+  // fix #51: accept raw chat IDs without "telegram:" prefix
+  // message_sent ctx.conversationId comes as plain "25017841" without prefix
+  if (!trimmed.startsWith(TELEGRAM_PREFIX)) {
+    // Treat as raw chat ID if it looks numeric (positive or negative)
+    const cleaned = trimmed.split(":")[0]!.trim();
+    return /^-?\d+$/.test(cleaned) ? cleaned : null;
+  }
 
   if (trimmed.startsWith(TELEGRAM_GROUP_PREFIX)) {
     const peer = trimmed.slice(TELEGRAM_GROUP_PREFIX.length);
