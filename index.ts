@@ -134,9 +134,11 @@ class StatusbarRuntime {
       await this.onBeforeAgentStart(ctx);
     });
     this.api.on("before_tool_call", async (event, ctx) => {
+      this.debugLogHook("before_tool_call", { ...(ctx as Record<string, unknown>), toolName: (event as Record<string, unknown>).toolName });
       await this.onBeforeToolCall(event, ctx);
     });
     this.api.on("after_tool_call", async (event, ctx) => {
+      this.debugLogHook("after_tool_call", { ...(ctx as Record<string, unknown>), toolName: (event as Record<string, unknown>).toolName });
       await this.onAfterToolCall(event, ctx);
     });
     this.api.on("llm_output", async (event, ctx) => {
@@ -204,10 +206,17 @@ class StatusbarRuntime {
         if (!ref) continue;
         const prefs = this.store.getConversation(target);
         if (!prefs.enabled) continue;
-        // Skip targets that already have an active session (don't overwrite live runs)
+        // Skip targets that already have an active or recently-completed session
         const runtimeKey = this.resolveRuntimeSessionKey(target);
         const existingSession = this.sessions.get(runtimeKey);
-        if (existingSession && ACTIVE_PHASES.has(existingSession.phase)) continue;
+        if (existingSession) {
+          // fix #49: skip active sessions AND recently-completed sessions (done/sending/error
+          // within the last 60s). Prevents cleanupStaleMessages from overwriting a valid
+          // "done" state with "idle" right after a gateway restart.
+          if (ACTIVE_PHASES.has(existingSession.phase)) continue;
+          const recentMs = Date.now() - (existingSession.endedAtMs ?? existingSession.lastHookAtMs ?? 0);
+          if (recentMs < 60_000 && (existingSession.phase === "done" || existingSession.phase === "sending" || existingSession.phase === "error")) continue;
+        }
         const idleSession = this.createSessionState({ sessionKey: "init-cleanup", target });
         idleSession.phase = "idle";
         const text = renderStatusText(idleSession, prefs);
@@ -531,27 +540,46 @@ class StatusbarRuntime {
 
   private async flushSession(sessionKey: string): Promise<void> {
     const session = this.sessions.get(sessionKey);
-    if (!session || session.isFlushing) return;
-
-    // fix #32: suppress flushes while compaction is running — avoids Telegram edit conflicts
-    // with the compaction LLM call. onAfterCompaction forces an urgent flush after.
-    if (session.compacting) return;
-
-    // fix #30: only the lock owner can edit during active phases — prevents dual-instance flickering
-    // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
-    if (ACTIVE_PHASES.has(session.phase) && !this.isLockOwner(session.target.chatId)) return;
-
-    const prefs = this.store.getConversation(session.target);
-    if (!prefs.enabled) return;
-
-    if (session.desiredRevision <= session.renderedRevision) return;
-
-    // fix #17: controlla il circuit breaker prima di qualsiasi chiamata API
-    if (!this.transport.canProceed(session.target.accountId, session.target.chatId)) {
-      // Il prossimo liveTick riproverà — non loggare per non spammare
+    if (!session) { return; }
+    if (session.isFlushing) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP isFlushing=true phase=${session.phase} key=${sessionKey}`);
       return;
     }
 
+    // fix #32: suppress flushes while compaction is running — avoids Telegram edit conflicts
+    // with the compaction LLM call. onAfterCompaction forces an urgent flush after.
+    if (session.compacting) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP compacting=true phase=${session.phase}`);
+      return;
+    }
+
+    // fix #30+#48: during active phases, only flush if the session has an active lock
+    // (any instance). This allows both [plugins] and [gateway] instances to render updates
+    // while preventing unowned stale sessions from flushing.
+    // done/sending/error phases flush freely (lock is released in transitionPhase before flush)
+    if (ACTIVE_PHASES.has(session.phase) && !this.isLocked(session.target.chatId) && !this.isLockOwner(session.target.chatId)) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP no-lock phase=${session.phase} locked=${this.isLocked(session.target.chatId)} owner=${this.isLockOwner(session.target.chatId)}`);
+      return;
+    }
+
+    const prefs = this.store.getConversation(session.target);
+    if (!prefs.enabled) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP not-enabled phase=${session.phase}`);
+      return;
+    }
+
+    if (session.desiredRevision <= session.renderedRevision) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP no-revision-change desired=${session.desiredRevision} rendered=${session.renderedRevision} phase=${session.phase}`);
+      return;
+    }
+
+    // fix #17: controlla il circuit breaker prima di qualsiasi chiamata API
+    if (!this.transport.canProceed(session.target.accountId, session.target.chatId)) {
+      this.api.logger.warn(`[SB-FLUSH] SKIP circuit-breaker phase=${session.phase}`);
+      return;
+    }
+
+    this.api.logger.warn(`[SB-FLUSH] START phase=${session.phase} desired=${session.desiredRevision} rendered=${session.renderedRevision}`);
     session.isFlushing = true;
     try {
       const text        = renderStatusText(session, prefs);
