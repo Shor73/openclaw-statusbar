@@ -204,6 +204,10 @@ class StatusbarRuntime {
         if (!ref) continue;
         const prefs = this.store.getConversation(target);
         if (!prefs.enabled) continue;
+        // fix #53: never show idle for pinned statusbar — "done" is the final state.
+        // Pinned messages stay visible permanently; showing "idle 💤" is confusing.
+        if (prefs.pinMode) continue;
+
         // Skip targets that already have an active or recently-completed session
         const runtimeKey = this.resolveRuntimeSessionKey(target);
         const existingSession = this.sessions.get(runtimeKey);
