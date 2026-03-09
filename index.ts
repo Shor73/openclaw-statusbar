@@ -433,8 +433,15 @@ class StatusbarRuntime {
       if (!ACTIVE_PHASES.has(shared.phase)) continue;
       if (!this.canRender(shared)) continue;
 
-      const rs = this.renderStates.get(key);
-      if (!rs) continue;
+      let rs = this.renderStates.get(key);
+      if (!rs) {
+        // Render state missing (e.g., after gateway restart) — try to recover
+        // from stored targets so the ticker can resume updating the bar.
+        const targets = this.store.getAllTargets();
+        const match = targets.find(t => this.runtimeKey(t) === key);
+        if (!match) continue;
+        rs = this.getOrCreateRenderState(match);
+      }
       if (now - rs.lastRenderedAtMs < cadenceMs) continue;
       if (!this.store.getConversation(rs.target).enabled) continue;
 
@@ -625,16 +632,17 @@ class StatusbarRuntime {
       updatedAtMs: Date.now(),
     }));
 
-    // Safety net: force "done" after 90s
+    // Safety net: force "done" after 10 minutes (covers crashes/stuck runs).
+    // Opus with thinking=high can legitimately take 3-5 min on complex tasks.
     rs.maxRunTimer = setTimeout(() => {
       rs.maxRunTimer = null;
       const current = this.shared.get(key);
       if (current && ACTIVE_PHASES.has(current.phase)) {
-        this.api.logger.warn(`statusbar: maxRunTimer fired (90s), forcing done`);
+        this.api.logger.warn(`statusbar: maxRunTimer fired (600s), forcing done for ${key}`);
         this.shared.update(key, (s) => s ? { ...s, phase: "done", endedAtMs: Date.now(), writerInstanceId: this.instanceId, updatedAtMs: Date.now() } : null);
         this.markDirty(key, true);
       }
-    }, 90_000);
+    }, 600_000);
 
     this.markDirty(key, true);
   }
@@ -727,7 +735,11 @@ class StatusbarRuntime {
       if (!s) return null;
       return {
         ...s,
-        phase: s.phase === "running" ? "thinking" as RunPhase : s.phase,
+        // Allow transition to "thinking" from ANY active phase, not just "running".
+        // This prevents the bar from getting stuck if a prior forced transition
+        // (e.g., maxRunTimer) left the phase in an unexpected state while the
+        // model is still actively working.
+        phase: ACTIVE_PHASES.has(s.phase) ? "thinking" as RunPhase : s.phase,
         thinkingLevel: typeof thinkingRaw === "string" && thinkingRaw.trim() ? thinkingRaw.trim() : s.thinkingLevel,
         writerInstanceId: this.instanceId,
         updatedAtMs: Date.now(),
