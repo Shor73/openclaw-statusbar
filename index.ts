@@ -24,6 +24,7 @@ const RE_AGENT_MAIN = /^agent:([^:]+):main$/;
 
 const ACTIVE_PHASES = new Set<RunPhase>(["queued", "running", "thinking", "tool"]);
 const STALE_WRITER_MS = 5_000; // if writer hasn't updated in 5s, another instance can render
+const STALE_QUEUED_MS = 4_000; // after update 2026.3.8 some runs can stay queued without transitioning
 
 type SessionTargetRef = { target: TelegramTarget; seenAtMs: number };
 type SenderTargetRef = { target: TelegramTarget; seenAtMs: number };
@@ -429,7 +430,26 @@ class StatusbarRuntime {
     const cadenceMs = Math.max(this.config.liveTickMs, this.config.minThrottleMs);
     const allShared = this.shared.read();
 
-    for (const [key, shared] of Object.entries(allShared)) {
+    for (const [key, rawShared] of Object.entries(allShared)) {
+      let shared = rawShared;
+
+      // OpenClaw 2026.3.8 can occasionally leave a run stuck in "queued"
+      // even though the agent is already processing. Promote stale queued runs
+      // so the bar keeps moving instead of freezing on "in coda" forever.
+      if (shared.phase === "queued" && now - shared.updatedAtMs > STALE_QUEUED_MS) {
+        this.shared.update(key, (s) => s ? {
+          ...s,
+          phase: "running" as RunPhase,
+          writerInstanceId: this.instanceId,
+          updatedAtMs: Date.now(),
+        } : null);
+        const promoted = this.shared.get(key);
+        if (promoted) {
+          shared = promoted;
+          this.api.logger.warn(`statusbar: promoted stale queued run to running for ${key}`);
+        }
+      }
+
       if (!ACTIVE_PHASES.has(shared.phase)) continue;
       if (!this.canRender(shared)) continue;
 
