@@ -652,17 +652,19 @@ class StatusbarRuntime {
       updatedAtMs: Date.now(),
     }));
 
-    // Safety net: force "done" after 10 minutes (covers crashes/stuck runs).
-    // Opus with thinking=high can legitimately take 3-5 min on complex tasks.
+    // Safety net: force "done" after 60 minutes (covers crashes/stuck runs).
+    // Long tasks (multi-file translation, large codebases, extended research)
+    // can legitimately run 20-40+ minutes — do NOT interrupt them.
+    // This timer is a last-resort guard, not a timeout for normal tasks.
     rs.maxRunTimer = setTimeout(() => {
       rs.maxRunTimer = null;
       const current = this.shared.get(key);
       if (current && ACTIVE_PHASES.has(current.phase)) {
-        this.api.logger.warn(`statusbar: maxRunTimer fired (600s), forcing done for ${key}`);
+        this.api.logger.warn(`statusbar: maxRunTimer fired (3600s), forcing done for ${key}`);
         this.shared.update(key, (s) => s ? { ...s, phase: "done", endedAtMs: Date.now(), writerInstanceId: this.instanceId, updatedAtMs: Date.now() } : null);
         this.markDirty(key, true);
       }
-    }, 600_000);
+    }, 3_600_000);
 
     this.markDirty(key, true);
   }
